@@ -1,0 +1,28 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "pngtools"
+version = "1.0.0"
+description = "Tiny CLI to explore PNGs"
+readme = "README.md"
+authors = [{ name = "n4n5", email = "its.just.n4n5@gmail.com" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["png", "tools", "cli"]
+requires-python = ">=3.6"
+
+dependencies = ['cmd2>=1,<2', 'pyreadline3']
+
+
+[project.urls]
+Homepage = "https://github.com/its-just-nans/pngtools"
+"Bug Tracker" = "https://github.com/its-just-nans/pngtools/issues"
