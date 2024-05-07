@@ -6,6 +6,7 @@ from pngtools import (
     decode_ihdr,
     extract_data,
     parse_idat,
+    extract_idat,
 )
 
 
@@ -61,6 +62,9 @@ def test_convert_to_bitmap():
         _,
         _,
     ) = decode_ihdr(chunks[0][2])
+    data = extract_idat(chunks)
+    assert len(data) == 3
+
     data = extract_data(chunks)
     assert len(data) == 5073561
     data = parse_idat(data, width, height, bit_depth, color_type)
@@ -80,9 +84,8 @@ def test_convert_to_bitmap_classic():
     ) = decode_ihdr(chunks[0][2])
     from PIL import Image
 
-    png_img = Image.open("toto.png")
-    png_img = png_img.convert("RGB")
-    png_img.save("yolo.bmp")
+    png_img = Image.open("tests/511-200x300.png")
+    png_img.save("tests/511-200x300_pil.bmp")
     data = extract_data(chunks)
     assert len(data) == 200 * 300 * 3 + 300
     data = parse_idat(data, width, height, bit_depth, color_type)

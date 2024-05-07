@@ -64,11 +64,13 @@ def try_hex(a):
         return "????"
 
 
+def extract_idat(chunks):
+    return [one_chunk[2] for one_chunk in chunks if one_chunk[1] == b"IDAT"]
+
+
 def extract_data(chunks):
-    data_idat = b""
-    for one_chunk in chunks:
-        if one_chunk[1] == b"IDAT":
-            data_idat += one_chunk[2]
+    """extract data from IDAT chunks and try to decompress it"""
+    data_idat = b"".join(extract_idat(chunks))
     return try_decompress(data_idat)
 
 

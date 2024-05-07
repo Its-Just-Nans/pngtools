@@ -14,6 +14,7 @@ from .lib import (
     decode_ihdr,  # noqa: F401
     extract_data,  # noqa: F401
     parse_idat,  # noqa: F401
+    extract_idat,  # noqa: F401
 )
 
 from .bmp import create_bmp  # noqa: F401
