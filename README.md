@@ -5,6 +5,7 @@
 ```bash
 python -m pip install pngtools
 
+# start the CLI
 python -m pngtools
 ```
 
