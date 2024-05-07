@@ -1,4 +1,5 @@
-from os.path import getsize, exists
+from os import fstat
+from os.path import exists
 import zlib
 
 ERROR_CODE = {
@@ -30,9 +31,22 @@ CHUNKS_TYPES = {
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
+global offset
+offset = 0
+
+
+def read_from_file(fp, read_len):
+    global offset
+    if hasattr(fp, "read"):
+        data = fp.read(read_len)
+    else:
+        data = fp[offset : offset + read_len]
+        offset += read_len
+    return data
+
 
 def read_chunk(file, total_size):
-    readed = file.read(4)
+    readed = read_from_file(file, 4)
     errors = []
     if readed == "":
         errors.append(ERROR_CODE["EOF"])
@@ -42,9 +56,9 @@ def read_chunk(file, total_size):
     if data_length > total_size:
         to_read = total_size - 3 * 4
         errors.append(ERROR_CODE["WRONG_LENGTH"])
-    chunk_type = file.read(4)
-    data = file.read(to_read)
-    crc = file.read(4)
+    chunk_type = read_from_file(file, 4)
+    data = read_from_file(file, to_read)
+    crc = read_from_file(file, 4)
     if crc != calculate_crc(chunk_type, data):
         errors.append(ERROR_CODE["WRONG_CRC"])
     return data_length, chunk_type, data, crc, errors
@@ -74,52 +88,82 @@ def extract_data(chunks):
     return try_decompress(data_idat)
 
 
-def read_file(filename):
-    """Read a PNG file"""
+def reset_offset():
+    global offset
+    offset = 0
+
+
+def read_broken_file(filename):
+    """Read a broken PNG file"""
+    reset_offset()
     if exists(filename):
-        return split_png_chunks(filename)
+        with open(filename, "rb") as fp:
+            file = fp.read()
+        try:
+            idx_start = file.index(PNG_MAGIC)
+        except ValueError as _e:
+            print("PNG not found")
+            return None
+        print(idx_start)
+        return split_png_chunks(file[idx_start:])
     else:
         print("File does not exist")
 
 
-def split_png_chunks(png_file):
-    size = getsize(png_file)
-    print(f"Reading {png_file} ({size} bytes)")
-    remaining_size = size
-    with open(png_file, "rb") as file:
-        # PNG files start with a signature
-        signature = file.read(len(PNG_MAGIC))
-        remaining_size -= len(PNG_MAGIC)
-        if signature != PNG_MAGIC:
-            raise ValueError("File is not a PNG")
-
-        chunks = []
-        idx = 0
-        while True:
-            if remaining_size <= 0:
-                break
-            length, chunk_type, data, crc, errors = read_chunk(file, remaining_size)
-            if ERROR_CODE["EOF"] in errors:
-                break
-            remaining_size -= length + 3 * 4
-            if ERROR_CODE["WRONG_LENGTH"] in errors:
-                if len(data) > 0 and data[-4:] == b"IEND":
-                    chunk1 = [length, chunk_type, data[:-12], data[-12:-8], errors]
-                    print_chunks([chunk1], idx)
-                    chunks.append(chunk1)
-                    len_iend = int.from_bytes(data[-8:-4], byteorder="big")
-                    iend_errors = []
-                    if len_iend > 0:
-                        iend_errors.append(ERROR_CODE["WRONG_LENGTH"])
-                    chunk2 = [len_iend, data[-4:], b"", crc, iend_errors]
-                    idx += 1
-                    print_chunks([chunk2], idx)
-                    chunks.append(chunk2)
+def read_file(filename, force_read=False):
+    """Read a PNG file"""
+    reset_offset()
+    if exists(filename):
+        with open(filename, "rb") as fp:
+            if force_read:
+                file = fp.read()
             else:
-                chunk_to_add = [length, chunk_type, data, crc, errors]
-                print_chunks([chunk_to_add], idx)
-                chunks.append(chunk_to_add)
-            idx += 1
+                file = fp
+            data = split_png_chunks(file)
+        return data
+    else:
+        print("File does not exist")
+
+
+def split_png_chunks(fp):
+    if hasattr(fp, "read"):
+        size = fstat(fp.fileno()).st_size
+    else:
+        size = len(fp)
+    print(f"Reading ({size} bytes)")
+    remaining_size = size
+    magic_len = len(PNG_MAGIC)
+    signature = read_from_file(fp, magic_len)
+    remaining_size -= magic_len
+    if signature != PNG_MAGIC:
+        raise ValueError("File is not a PNG")
+    chunks = []
+    idx = 0
+    while True:
+        if remaining_size <= 0:
+            break
+        length, chunk_type, data, crc, errors = read_chunk(fp, remaining_size)
+        if ERROR_CODE["EOF"] in errors:
+            break
+        remaining_size -= length + 3 * 4
+        if ERROR_CODE["WRONG_LENGTH"] in errors:
+            if len(data) > 0 and data[-4:] == b"IEND":
+                chunk1 = [length, chunk_type, data[:-12], data[-12:-8], errors]
+                print_chunks([chunk1], idx)
+                chunks.append(chunk1)
+                len_iend = int.from_bytes(data[-8:-4], byteorder="big")
+                iend_errors = []
+                if len_iend > 0:
+                    iend_errors.append(ERROR_CODE["WRONG_LENGTH"])
+                chunk2 = [len_iend, data[-4:], b"", crc, iend_errors]
+                idx += 1
+                print_chunks([chunk2], idx)
+                chunks.append(chunk2)
+        else:
+            chunk_to_add = [length, chunk_type, data, crc, errors]
+            print_chunks([chunk_to_add], idx)
+            chunks.append(chunk_to_add)
+        idx += 1
     return chunks
 
 
@@ -201,7 +245,7 @@ def get_indices(x: list, value: int) -> list:
             indices.append(i)
             # advance i by 1
             i += 1
-        except ValueError as e:
+        except ValueError as _e:
             break
     return indices
 
@@ -356,3 +400,4 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
 
 if __name__ == "__main__":
     print("pngtools package loaded")
+    read_broken_file("tests/broken_file.bin")

@@ -15,6 +15,7 @@ from .lib import (
     extract_data,  # noqa: F401
     parse_idat,  # noqa: F401
     extract_idat,  # noqa: F401
+    read_broken_file,  # noqa: F401
 )
 
 from .bmp import create_bmp  # noqa: F401

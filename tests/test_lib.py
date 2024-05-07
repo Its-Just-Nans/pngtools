@@ -1,5 +1,6 @@
 from pngtools import (
     read_file,
+    read_broken_file,
     remove_chunk_by_type,
     create_iend_chunk,
     create_bmp,
@@ -10,8 +11,18 @@ from pngtools import (
 )
 
 
-def test_decode_idat():
+def test_read_file():
     chunks = read_file("tests/511-200x300.png")
+    assert len(chunks) == 23
+
+
+def test_force_read():
+    chunks = read_file("tests/511-200x300.png", force_read=True)
+    assert len(chunks) == 23
+
+
+def test_decode_broken_file():
+    chunks = read_broken_file("tests/broken_file.bin")
     assert len(chunks) == 23
 
 
