@@ -6,6 +6,7 @@ ERROR_CODE = {
     "WRONG_LENGTH": "Wrong length",
     "EOF": "End of file",
     "WRONG_CRC": "Wrong CRC",
+    "WRONG_TYPE": "Wrong type",
 }
 
 CHUNKS_TYPES = {
@@ -57,6 +58,8 @@ def read_chunk(file, total_size):
         to_read = total_size - 3 * 4
         errors.append(ERROR_CODE["WRONG_LENGTH"])
     chunk_type = read_from_file(file, 4)
+    if chunk_type not in CHUNKS_TYPES:
+        errors.append(ERROR_CODE["WRONG_TYPE"])
     data = read_from_file(file, to_read)
     crc = read_from_file(file, 4)
     if crc != calculate_crc(chunk_type, data):
@@ -64,10 +67,10 @@ def read_chunk(file, total_size):
     return data_length, chunk_type, data, crc, errors
 
 
-def try_dec(a):
-    try:
-        return a.decode("ascii")
-    except UnicodeDecodeError:
+def try_dec(type_chunk):
+    if type_chunk in CHUNKS_TYPES:
+        return type_chunk
+    else:
         return "????"
 
 
@@ -93,19 +96,19 @@ def reset_offset():
     offset = 0
 
 
-def read_broken_file(filename):
+def read_broken_file(filename, force_idx=0):
     """Read a broken PNG file"""
     reset_offset()
     if exists(filename):
         with open(filename, "rb") as fp:
             file = fp.read()
-        try:
-            idx_start = file.index(PNG_MAGIC)
-        except ValueError as _e:
-            print("PNG not found")
+        idxs = get_indices(file, PNG_MAGIC)
+        if len(idxs) == 0:
+            print("No PNG detected")
             return None
-        print(idx_start)
-        return split_png_chunks(file[idx_start:])
+        print(f"PNG signatures detected at {idxs}")
+        choosed_idx = force_idx if force_idx != 0 else idxs[0]
+        return split_png_chunks(file[choosed_idx:])
     else:
         print("File does not exist")
 
@@ -145,7 +148,7 @@ def split_png_chunks(fp):
         length, chunk_type, data, crc, errors = read_chunk(fp, remaining_size)
         if ERROR_CODE["EOF"] in errors:
             break
-        remaining_size -= length + 3 * 4
+        remaining_size -= length + 4 + len(chunk_type) + len(crc)
         if ERROR_CODE["WRONG_LENGTH"] in errors:
             if len(data) > 0 and data[-4:] == b"IEND":
                 chunk1 = [length, chunk_type, data[:-12], data[-12:-8], errors]
@@ -400,4 +403,4 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
 
 if __name__ == "__main__":
     print("pngtools package loaded")
-    read_broken_file("tests/broken_file.bin")
+    read_broken_file("tests/double_png.png")

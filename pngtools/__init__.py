@@ -16,6 +16,8 @@ from .lib import (
     parse_idat,  # noqa: F401
     extract_idat,  # noqa: F401
     read_broken_file,  # noqa: F401
+    get_indices,  # noqa: F401
+    PNG_MAGIC,  # noqa: F401
 )
 
 from .bmp import create_bmp  # noqa: F401

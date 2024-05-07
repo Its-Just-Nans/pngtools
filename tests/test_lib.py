@@ -8,6 +8,8 @@ from pngtools import (
     extract_data,
     parse_idat,
     extract_idat,
+    get_indices,
+    PNG_MAGIC,
 )
 
 
@@ -24,6 +26,19 @@ def test_force_read():
 def test_decode_broken_file():
     chunks = read_broken_file("tests/broken_file.bin")
     assert len(chunks) == 23
+
+
+def test_decode_broken_file_multiple():
+    filename = "tests/double_png.png"
+    chunks_file_0 = read_broken_file(filename)
+    assert len(chunks_file_0) == 23 + 2  # 2 = chunk raw data + detected IEND
+    # force idxs
+    with open(filename, "rb") as fp:
+        file = fp.read()
+    idxs = get_indices(file, PNG_MAGIC)
+    idx_choosed = idxs[1]
+    chunks_file_1 = read_broken_file(filename, force_idx=idx_choosed)
+    assert len(chunks_file_1) == 23
 
 
 def test_remove_chunk_by_type():
