@@ -26,20 +26,18 @@ def test_force_read():
 
 
 def test_decode_broken_file():
-    chunks = read_broken_file("tests/broken_file.bin")
+    chunks, _ = read_broken_file("tests/broken_file.bin")
     assert len(chunks) == 23
 
 
 def test_decode_broken_file_multiple():
     filename = "tests/double_png.png"
-    chunks_file_0 = read_broken_file(filename)
+    chunks_file_0, idxs = read_broken_file(filename)
     assert len(chunks_file_0) == 23 + 2  # 2 = chunk raw data + detected IEND
-    # force idxs
-    with open(filename, "rb") as fp:
-        file = fp.read()
-    idxs = get_indices(file, PNG_MAGIC)
+
+    # force idxs[1] to be choosed
     idx_choosed = idxs[1]
-    chunks_file_1 = read_broken_file(filename, force_idx=idx_choosed)
+    chunks_file_1, _ = read_broken_file(filename, force_idx=idx_choosed)
     assert len(chunks_file_1) == 23
 
 
@@ -77,6 +75,15 @@ def test_decode_ihdr():
     assert compression_method == 0
     assert filter_method == 0
     assert interlace_method == 0
+
+
+def test_decode_phy():
+    chunks = read_file("tests/511-200x300.png")
+    phy = get_by_type(chunks, b"pHYs")[0]
+    x, y, unit = decode_phy(phy)
+    assert x == 2834
+    assert y == 2834
+    assert unit == 1
 
 
 def test_convert_to_bitmap():

@@ -128,10 +128,10 @@ def read_broken_file(filename, force_idx=0):
         idxs = get_indices(file, PNG_MAGIC)
         if len(idxs) == 0:
             print("No PNG detected")
-            return None
+            return None, idxs
         print(f"PNG signatures detected at {idxs}")
         choosed_idx = force_idx if force_idx != 0 else idxs[0]
-        return split_png_chunks(file[choosed_idx:])
+        return split_png_chunks(file[choosed_idx:]), idxs
     else:
         print("File does not exist")
 
