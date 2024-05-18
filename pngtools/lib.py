@@ -14,6 +14,7 @@ CHUNKS_TYPES = {
     b"PLTE": "Palette",
     b"IDAT": "Image data",
     b"IEND": "Image trailer",
+    b"eXIf": "Exif data",
     b"cHRM": "Primary chromaticities",
     b"gAMA": "Image gamma",
     b"iCCP": "Embedded ICC profile",
@@ -69,7 +70,7 @@ def read_chunk(file, total_size):
 
 def try_dec(type_chunk):
     if type_chunk in CHUNKS_TYPES:
-        return type_chunk
+        return type_chunk.decode("utf-8")
     else:
         return "????"
 
@@ -81,8 +82,30 @@ def try_hex(a):
         return "????"
 
 
+def get_by_type(chunks, type="IDAT"):
+    return [one_chunk for one_chunk in chunks if one_chunk[1] == type]
+
+
+def get_data_of_chunk(one_chunk):
+    return one_chunk[2]
+
+
 def extract_idat(chunks):
-    return [one_chunk[2] for one_chunk in chunks if one_chunk[1] == b"IDAT"]
+    return [
+        get_data_of_chunk(one_chunk) for one_chunk in chunks if one_chunk[1] == b"IDAT"
+    ]
+
+
+def decode_phy(chunk):
+    phy_chunk_data = get_data_of_chunk(chunk)
+    x_pixels_per_unit = int.from_bytes(phy_chunk_data[0:4], byteorder="big")
+    y_pixels_per_unit = int.from_bytes(phy_chunk_data[4:8], byteorder="big")
+    unit_specifier = int.from_bytes(phy_chunk_data[8:9], byteorder="big")
+    if unit_specifier == 0:
+        # Units are unspecified or in inches, using default
+        x_pixels_per_unit = 2835
+        y_pixels_per_unit = 2835
+    return x_pixels_per_unit, y_pixels_per_unit, unit_specifier
 
 
 def extract_data(chunks):
@@ -191,9 +214,8 @@ def print_chunks(chunks, start_index=0):
         errors = ""
         if len(chunk[4]) > 0:
             errors = f"Errors: {chunk[4]}"
-        space = " " if is_correct else ""
         print(
-            f"Chunk {start_index+i:2d}: Length={chunk[0]:{max_str}d}, Type={try_dec(chunk[1])}, CRC={crc_hex} ({is_correct}){space}, data={data_display} {errors}"
+            f"Chunk {start_index+i:2d}: Length={chunk[0]:{max_str}d}, Type={try_dec(chunk[1])}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
         )
 
 
@@ -229,10 +251,10 @@ def remove_chunk_by_type(chunks, filter_type):
 
 
 def fix_chunk(chunk):
-    chunk[0] = len(chunk[2])
+    chunk[0] = len(get_data_of_chunk(chunk))
     if chunk[1] not in CHUNKS_TYPES:
         chunk[1] = b"IDAT"
-    chunk[3] = calculate_crc(chunk[1], chunk[2])
+    chunk[3] = calculate_crc(chunk[1], get_data_of_chunk(chunk))
     chunk[4] = []
     return chunk
 
@@ -256,7 +278,7 @@ def get_indices(x: list, value: int) -> list:
 def get_binary_chunk(chunk):
     length_binary = chunk[0].to_bytes(4, byteorder="big")
     type_binary = chunk[1]
-    data = chunk[2]
+    data = get_data_of_chunk(chunk)
     crc = chunk[3]
     return length_binary + type_binary + data + crc
 
@@ -322,56 +344,51 @@ def decode_ihdr(data):
 
 def undo_filtering(scanline, prev_scanline=None, bpp=3):
     if prev_scanline is None:
-        prev_scanline = bytes([0] * len(scanline))
+        prev_scanline = bytes([0] * (len(scanline) - 1))
 
-    filtered_scanline = bytearray(scanline)
-    filter_type = filtered_scanline[0]
+    filter_type = scanline[0]
+    filtered_scanline = bytearray(scanline[1:])
 
     if filter_type == 0:
-        return filtered_scanline[1:]
+        return filtered_scanline
     elif filter_type == 1:
-        for i in range(bpp, len(scanline)):
+        for i in range(bpp, len(filtered_scanline)):
             filtered_scanline[i] = (
                 filtered_scanline[i] + filtered_scanline[i - bpp]
             ) % 256
-        return bytes(filtered_scanline[1:])
+        return filtered_scanline
     elif filter_type == 2:
-        for i in range(1, len(scanline)):
-            if i - bpp >= 0:
-                filtered_scanline[i] = (
-                    filtered_scanline[i] + filtered_scanline[i - bpp]
-                ) % 256
-        return bytes(filtered_scanline[1:])
+        for i in range(len(filtered_scanline)):
+            filtered_scanline[i] = (filtered_scanline[i] + prev_scanline[i]) % 256
+        return filtered_scanline
     elif filter_type == 3:
-        for i in range(1, len(scanline)):
-            if i < len(prev_scanline):
-                filtered_scanline[i] = (filtered_scanline[i] + prev_scanline[i]) % 256
-        return bytes(filtered_scanline[1:])
+        for i in range(len(filtered_scanline)):
+            left = filtered_scanline[i - bpp] if i >= bpp else 0
+            up = prev_scanline[i]
+            filtered_scanline[i] = (filtered_scanline[i] + (left + up) // 2) % 256
+        return filtered_scanline
     elif filter_type == 4:
-        for i in range(1, len(scanline)):
-            if prev_scanline:
-                a = filtered_scanline[i - bpp] if i >= bpp else 0
-                b = prev_scanline[i] if i < len(prev_scanline) else 0
-                c = prev_scanline[i - bpp] if i >= bpp else 0
-                p = a + b - c
-                pa = abs(p - a)
-                pb = abs(p - b)
-                pc = abs(p - c)
-                if pa <= pb and pa <= pc:
-                    filtered_scanline[i] = (filtered_scanline[i] + a) % 256
-                elif pb <= pc:
-                    filtered_scanline[i] = (filtered_scanline[i] + b) % 256
-                else:
-                    filtered_scanline[i] = (filtered_scanline[i] + c) % 256
-        return bytes(filtered_scanline[1:])
+        for i in range(len(filtered_scanline)):
+            left = filtered_scanline[i - bpp] if i >= bpp else 0
+            up = prev_scanline[i]
+            up_left = prev_scanline[i - bpp] if i >= bpp else 0
+            p = left + up - up_left
+            pa = abs(p - left)
+            pb = abs(p - up)
+            pc = abs(p - up_left)
+            if pa <= pb and pa <= pc:
+                pr = left
+            elif pb <= pc:
+                pr = up
+            else:
+                pr = up_left
+            filtered_scanline[i] = (filtered_scanline[i] + pr) % 256
+        return filtered_scanline
     else:
         raise ValueError(f"Invalid filter type: {filter_type}")
 
 
 def parse_idat(idat_data, width, height, bit_depth, color_type):
-    scanline_length = (width * bit_depth * (1 if color_type == 0 else 3) + 7) // 8
-    scanline_bytes = scanline_length + 1  # Plus 1 for the filter type byte
-
     if color_type == 2:  # RGB
         bpp = 3
     elif color_type == 6:  # RGBA
@@ -379,13 +396,18 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
     else:
         raise ValueError("Unsupported color type")
 
+    bytes_per_pixel = (bit_depth * bpp) // 8
+    scanline_length = width * bytes_per_pixel
+    scanline_bytes = scanline_length + 1  # Plus 1 for the filter type byte
+
     bmp_data = bytearray()
     prev_scanline = None
+
     for i in range(height):
         scanline_start = i * scanline_bytes
         scanline_end = scanline_start + scanline_bytes
         scanline = idat_data[scanline_start:scanline_end]
-        filtered_scanline = undo_filtering(scanline, prev_scanline, bpp)
+        filtered_scanline = undo_filtering(scanline, prev_scanline, bytes_per_pixel)
 
         if color_type == 6:  # RGBA to RGB
             filtered_scanline = bytes(
@@ -395,7 +417,6 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
             )
 
         bmp_data.extend(filtered_scanline)
-
         prev_scanline = filtered_scanline
 
     return bmp_data
@@ -403,4 +424,3 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
 
 if __name__ == "__main__":
     print("pngtools package loaded")
-    read_broken_file("tests/double_png.png")

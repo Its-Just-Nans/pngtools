@@ -8,6 +8,8 @@ from pngtools import (
     extract_data,
     parse_idat,
     extract_idat,
+    get_by_type,
+    decode_phy,
     get_indices,
     PNG_MAGIC,
 )
@@ -113,7 +115,13 @@ def test_convert_to_bitmap_classic():
     png_img = Image.open("tests/511-200x300.png")
     png_img.save("tests/511-200x300_pil.bmp")
     data = extract_data(chunks)
-    assert len(data) == 200 * 300 * 3 + 300
+    assert len(data) == width * height * 3 + height
     data = parse_idat(data, width, height, bit_depth, color_type)
-    assert len(data) == 200 * 300 * 3
-    create_bmp(width, height, "tests/511-200x300.bmp", data)
+    assert len(data) == width * height * 3
+    create_bmp(
+        width,
+        height,
+        "tests/511-200x300.bmp",
+        data,
+        decode_phy(get_by_type(chunks, b"pHYs")[0]),
+    )

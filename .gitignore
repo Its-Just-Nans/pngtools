@@ -1,4 +1,5 @@
 dist/
 build/
 __pycache__/
+.vscode/
 pngtools.egg-info/
