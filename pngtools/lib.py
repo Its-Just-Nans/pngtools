@@ -83,16 +83,34 @@ def try_hex(a):
 
 
 def get_by_type(chunks, type="IDAT"):
-    return [one_chunk for one_chunk in chunks if one_chunk[1] == type]
+    return [one_chunk for one_chunk in chunks if get_type_of_chunk(one_chunk) == type]
+
+
+# chunk is a list of 5 elements (for now) -> can change in the future
+# [length, chunk_type, data, crc, errors]
+
+
+def get_length_of_chunk(one_chunk):
+    return one_chunk[0]
 
 
 def get_data_of_chunk(one_chunk):
     return one_chunk[2]
 
 
+def get_crc_of_chunk(one_chunk):
+    return one_chunk[3]
+
+
+def get_type_of_chunk(one_chunk):
+    return one_chunk[1]
+
+
 def extract_idat(chunks):
     return [
-        get_data_of_chunk(one_chunk) for one_chunk in chunks if one_chunk[1] == b"IDAT"
+        get_data_of_chunk(one_chunk)
+        for one_chunk in chunks
+        if get_type_of_chunk(one_chunk) == b"IDAT"
     ]
 
 
@@ -205,17 +223,21 @@ def write_png(chunks, output_file):
 def print_chunks(chunks, start_index=0):
     if len(chunks) == 0:
         return
-    max_str = max([len(f"{one_chunk[0]}") for one_chunk in chunks])
-    for i, chunk in enumerate(chunks):
-        crc_hex = try_hex(chunk[3])
-        checksum = calculate_crc(chunk[1], chunk[2])
-        is_correct = chunk[3] == checksum
-        data_display = chunk[2][:5] + b"..." if len(chunk[2]) > 10 else chunk[2]
+    max_str = max([len(f"{get_length_of_chunk(one_chunk)}") for one_chunk in chunks])
+    for i, one_chunk in enumerate(chunks):
+        length_part = get_length_of_chunk(one_chunk)
+        data_part = get_data_of_chunk(one_chunk)
+        crc_part = get_crc_of_chunk(one_chunk)
+        type_part = get_type_of_chunk(one_chunk)
+        crc_hex = try_hex(crc_part)
+        checksum = calculate_crc(type_part, data_part)
+        is_correct = crc_part == checksum
+        data_display = data_part[:5] + b"..." if len(data_part) > 10 else data_part
         errors = ""
-        if len(chunk[4]) > 0:
-            errors = f"Errors: {chunk[4]}"
+        if len(one_chunk[4]) > 0:
+            errors = f"Errors: {one_chunk[4]}"
         print(
-            f"Chunk {start_index+i:2d}: Length={chunk[0]:{max_str}d}, Type={try_dec(chunk[1])}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
+            f"Chunk {start_index+i:2d}: Length={length_part:{max_str}d}, Type={try_dec(type_part)}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
         )
 
 
@@ -247,7 +269,9 @@ def create_iend_chunk():
 
 
 def remove_chunk_by_type(chunks, filter_type):
-    return [one_chunk for one_chunk in chunks if one_chunk[1] != filter_type]
+    return [
+        one_chunk for one_chunk in chunks if get_type_of_chunk(one_chunk) != filter_type
+    ]
 
 
 def fix_chunk(chunk):
@@ -277,9 +301,9 @@ def get_indices(x: list, value: int) -> list:
 
 def get_binary_chunk(chunk):
     length_binary = chunk[0].to_bytes(4, byteorder="big")
-    type_binary = chunk[1]
+    type_binary = get_type_of_chunk(chunk)
     data = get_data_of_chunk(chunk)
-    crc = chunk[3]
+    crc = get_crc_of_chunk(chunk)
     return length_binary + type_binary + data + crc
 
 
@@ -342,12 +366,36 @@ def decode_ihdr(data):
     )
 
 
-def undo_filtering(scanline, prev_scanline=None, bpp=3):
-    if prev_scanline is None:
-        prev_scanline = bytes([0] * (len(scanline) - 1))
+def calculate_decompressed_length(width, height, bit_depth, color_type):
+    if color_type == 2:  # RGB
+        samples_per_pixel = 3
+    elif color_type == 6:  # RGBA
+        samples_per_pixel = 4
+    else:
+        raise ValueError("Unsupported color type")
 
+    # Calculate bytes per pixel
+    bytes_per_pixel = (bit_depth * samples_per_pixel) // 8
+
+    # Calculate bytes per scanline (including filter byte)
+    bytes_per_scanline = (width * bytes_per_pixel) + 1
+
+    # Calculate total decompressed length
+    total_length = bytes_per_scanline * height
+    return total_length
+
+
+def undo_filtering(scanline, prev_scanline=None, bpp=3):
     filter_type = scanline[0]
     filtered_scanline = bytearray(scanline[1:])
+
+    if prev_scanline is None:
+        prev_scanline = bytes([0] * len(filtered_scanline))
+
+    if len(prev_scanline) != len(filtered_scanline):
+        raise ValueError(
+            f"Length mismatch: prev_scanline={len(prev_scanline)}, filtered_scanline={len(filtered_scanline)}"
+        )
 
     if filter_type == 0:
         return filtered_scanline
@@ -407,17 +455,24 @@ def parse_idat(idat_data, width, height, bit_depth, color_type):
         scanline_start = i * scanline_bytes
         scanline_end = scanline_start + scanline_bytes
         scanline = idat_data[scanline_start:scanline_end]
+        print(
+            f"Processing scanline {i}: start={scanline_start}, end={scanline_end}, filter_type={scanline[0]}"
+        )
+        print(f"Scanline length: {len(scanline)}, Expected: {scanline_bytes}")
         filtered_scanline = undo_filtering(scanline, prev_scanline, bytes_per_pixel)
+        print(f"Filtered scanline length: {len(filtered_scanline)}")
 
         if color_type == 6:  # RGBA to RGB
-            filtered_scanline = bytes(
-                filtered_scanline[j]
-                for j in range(len(filtered_scanline))
-                if (j + 1) % 4 != 0
-            )
+            converted_scanline = bytearray()
+            for j in range(0, len(filtered_scanline), 4):
+                converted_scanline.extend(filtered_scanline[j : j + 3])
+            filtered_scanline = converted_scanline
+            print(f"Converted scanline length (RGBA to RGB): {len(filtered_scanline)}")
 
         bmp_data.extend(filtered_scanline)
-        prev_scanline = filtered_scanline
+        prev_scanline = bytearray(
+            filtered_scanline
+        )  # Update after conversion to ensure correct length
 
     return bmp_data
 

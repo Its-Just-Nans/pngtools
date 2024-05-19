@@ -11,7 +11,10 @@ from .lib import (
     create_iend_chunk,
     extract_sub_chunk,
     try_decompress,
+    extract_idat,
     parse_idat,
+    get_data_of_chunk,
+    get_type_of_chunk,
     decode_ihdr,
     read_file,
 )
@@ -93,7 +96,7 @@ class CLI(cmd2.Cmd):
         index = int(args.index)
         if len(self.chunks) > 0:
             if len(self.chunks) >= index:
-                print(self.chunks[index][2])
+                print(get_data_of_chunk(self.chunks[index]))
             else:
                 print("Invalid index")
         else:
@@ -110,7 +113,7 @@ class CLI(cmd2.Cmd):
         index = int(args.index)
         if len(self.chunks) > 0:
             if len(self.chunks) >= index:
-                uncromp = self.chunks[index][2]
+                uncromp = get_data_of_chunk(self.chunks[index])
                 data = try_decompress(uncromp)
                 if data is not None:
                     print(data)
@@ -172,11 +175,13 @@ class CLI(cmd2.Cmd):
         """Show the IHDR chunk"""
         if self.chunks:
             indexes = [
-                i for i, one_chunk in enumerate(self.chunks) if one_chunk[1] == b"IHDR"
+                i
+                for i, one_chunk in enumerate(self.chunks)
+                if get_type_of_chunk(one_chunk) == b"IHDR"
             ]
             for index in indexes:
                 print(f"IHDR chunk (index {index}):")
-                data = self.chunks[index][2]
+                data = get_data_of_chunk(self.chunks[index])
                 (
                     width,
                     height,
@@ -202,7 +207,9 @@ class CLI(cmd2.Cmd):
     def do_acropalypse(self, args):
         """Try acropalypse"""
         indexes_iend = [
-            i for i, one_chunk in enumerate(self.chunks) if one_chunk[1] == b"IEND"
+            i
+            for i, one_chunk in enumerate(self.chunks)
+            if get_type_of_chunk(one_chunk) == b"IEND"
         ]
         if len(indexes_iend) > 1:
             print("More than one IEND chunk !")
@@ -221,12 +228,7 @@ class CLI(cmd2.Cmd):
     def do_create_bmp(self, args):
         """Test"""
         out_filename = args.filename
-        indices = [
-            i for i, one_chunk in enumerate(self.chunks) if one_chunk[1] == b"IDAT"
-        ]
-        data_idat = b""
-        for first_idat_index in indices:
-            data_idat += self.chunks[first_idat_index][2]
+        data_idat = b"".join(extract_idat(self.chunks))
         (
             width,
             height,
@@ -235,7 +237,7 @@ class CLI(cmd2.Cmd):
             _,
             _,
             _,
-        ) = decode_ihdr(self.chunks[0][2])
+        ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
         decomp = try_decompress(data_idat)
         create_bmp(width, height, out_filename, decomp)
 

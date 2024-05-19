@@ -9,9 +9,11 @@ from pngtools import (
     parse_idat,
     extract_idat,
     get_by_type,
+    get_data_of_chunk,
+    get_type_of_chunk,
+    get_length_of_chunk,
+    calculate_decompressed_length,
     decode_phy,
-    get_indices,
-    PNG_MAGIC,
 )
 
 
@@ -58,7 +60,7 @@ def test_delete_create_iend():
 def test_decode_ihdr():
     chunks = read_file("tests/511-200x300.png")
     assert len(chunks) == 23
-    assert chunks[0][1] == b"IHDR"
+    assert get_type_of_chunk(chunks[0]) == b"IHDR"
     (
         width,
         height,
@@ -67,7 +69,7 @@ def test_decode_ihdr():
         compression_method,
         filter_method,
         interlace_method,
-    ) = decode_ihdr(chunks[0][2])
+    ) = decode_ihdr(get_data_of_chunk(chunks[0]))
     assert width == 200
     assert height == 300
     assert bit_depth == 8
@@ -96,13 +98,24 @@ def test_convert_to_bitmap():
         _,
         _,
         _,
-    ) = decode_ihdr(chunks[0][2])
+    ) = decode_ihdr(get_data_of_chunk(chunks[0]))
     data = extract_idat(chunks)
     assert len(data) == 3
 
+    total_length = sum(
+        [get_length_of_chunk(one_chunk) for one_chunk in get_by_type(chunks, b"IDAT")]
+    )
+
+    assert len(b"".join(data)) == total_length
+
     data = extract_data(chunks)
-    assert len(data) == 5073561
-    data = parse_idat(data, width, height, bit_depth, color_type)
+    expected_length = calculate_decompressed_length(
+        width, height, bit_depth, color_type
+    )
+    assert len(data) == expected_length
+
+    raw_data = parse_idat(data, width, height, bit_depth, color_type)
+    assert len(raw_data) == width * height * 3
     create_bmp(width, height, "tests/acropalypse.bmp", data)
 
 
@@ -116,19 +129,28 @@ def test_convert_to_bitmap_classic():
         _,
         _,
         _,
-    ) = decode_ihdr(chunks[0][2])
-    from PIL import Image
-
-    png_img = Image.open("tests/511-200x300.png")
-    png_img.save("tests/511-200x300_pil.bmp")
+    ) = decode_ihdr(get_data_of_chunk(chunks[0]))
     data = extract_data(chunks)
-    assert len(data) == width * height * 3 + height
-    data = parse_idat(data, width, height, bit_depth, color_type)
-    assert len(data) == width * height * 3
+    assert len(data) == calculate_decompressed_length(
+        width, height, bit_depth, color_type
+    )
+    raw_data = parse_idat(data, width, height, bit_depth, color_type)
+    assert len(raw_data) == width * height * 3
     create_bmp(
         width,
         height,
         "tests/511-200x300.bmp",
-        data,
+        raw_data,
         decode_phy(get_by_type(chunks, b"pHYs")[0]),
     )
+    _test_pil()
+
+
+def _test_pil():
+    from PIL import Image
+    from os.path import getsize
+
+    png_img = Image.open("tests/511-200x300.png")
+    png_img.save("tests/511-200x300_pil.bmp")
+
+    assert getsize("tests/511-200x300_pil.bmp") == getsize("tests/511-200x300.bmp")

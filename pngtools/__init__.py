@@ -16,8 +16,12 @@ from .lib import (
     parse_idat,  # noqa: F401
     extract_idat,  # noqa: F401
     get_by_type,  # noqa: F401
+    get_length_of_chunk,  # noqa: F401
+    get_crc_of_chunk,  # noqa: F401
     get_data_of_chunk,  # noqa: F401
+    get_type_of_chunk,  # noqa: F401
     decode_phy,  # noqa: F401
+    calculate_decompressed_length,  # noqa: F401
     read_broken_file,  # noqa: F401
     get_indices,  # noqa: F401
     PNG_MAGIC,  # noqa: F401
