@@ -16,18 +16,11 @@ from pngtools import PNG_MAGIC, split_png_chunks
 # do your things
 ```
 
-## Development
-
-```bash
-python -m pip install -r requirements.txt
-
-python -m pip install .
-```
-
-## Testing
+## Testing and linting
 
 ```bash
 python -m pytest -vvv
+python -m pylint ./pngtools
 ```
 
 ## License

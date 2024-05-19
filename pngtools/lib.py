@@ -1,3 +1,5 @@
+"""pngtools library"""
+
 from os import fstat
 from os.path import exists
 import zlib
@@ -38,6 +40,7 @@ offset = 0
 
 
 def read_from_file(fp, read_len):
+    """Read data from file or buffer"""
     global offset
     if hasattr(fp, "read"):
         data = fp.read(read_len)
@@ -48,6 +51,7 @@ def read_from_file(fp, read_len):
 
 
 def read_chunk(file, total_size):
+    """Read a chunk from a file"""
     readed = read_from_file(file, 4)
     errors = []
     if readed == "":
@@ -69,21 +73,27 @@ def read_chunk(file, total_size):
 
 
 def try_dec(type_chunk):
+    """Try to decode the type of chunk"""
     if type_chunk in CHUNKS_TYPES:
         return type_chunk.decode("utf-8")
-    else:
-        return "????"
+    return "????"
 
 
 def try_hex(a):
+    """Try to decode a bytes object to hex, if it fails return ????"""
     try:
         return a.hex()
     except UnicodeDecodeError:
         return "????"
 
 
-def get_by_type(chunks, type="IDAT"):
-    return [one_chunk for one_chunk in chunks if get_type_of_chunk(one_chunk) == type]
+def get_by_type(chunks, current_type="IDAT"):
+    """Get all chunks of a specific type"""
+    return [
+        one_chunk
+        for one_chunk in chunks
+        if get_type_of_chunk(one_chunk) == current_type
+    ]
 
 
 # chunk is a list of 5 elements (for now) -> can change in the future
@@ -91,22 +101,27 @@ def get_by_type(chunks, type="IDAT"):
 
 
 def get_length_of_chunk(one_chunk):
+    """Get the length of a chunk"""
     return one_chunk[0]
 
 
 def get_data_of_chunk(one_chunk):
+    """Get the data of a chunk"""
     return one_chunk[2]
 
 
 def get_crc_of_chunk(one_chunk):
+    """Get the CRC of a chunk"""
     return one_chunk[3]
 
 
 def get_type_of_chunk(one_chunk):
+    """Get the type of a chunk"""
     return one_chunk[1]
 
 
 def extract_idat(chunks):
+    """Extract IDAT chunks from a list of chunks"""
     return [
         get_data_of_chunk(one_chunk)
         for one_chunk in chunks
@@ -115,6 +130,7 @@ def extract_idat(chunks):
 
 
 def decode_phy(chunk):
+    """Decode the pHYs chunk data"""
     phy_chunk_data = get_data_of_chunk(chunk)
     x_pixels_per_unit = int.from_bytes(phy_chunk_data[0:4], byteorder="big")
     y_pixels_per_unit = int.from_bytes(phy_chunk_data[4:8], byteorder="big")
@@ -133,6 +149,7 @@ def extract_data(chunks):
 
 
 def reset_offset():
+    """Reset the offset to 0"""
     global offset
     offset = 0
 
@@ -150,8 +167,8 @@ def read_broken_file(filename, force_idx=0):
         print(f"PNG signatures detected at {idxs}")
         choosed_idx = force_idx if force_idx != 0 else idxs[0]
         return split_png_chunks(file[choosed_idx:]), idxs
-    else:
-        print("File does not exist")
+    print("File does not exist")
+    return None, []
 
 
 def read_file(filename, force_read=False):
@@ -165,11 +182,12 @@ def read_file(filename, force_read=False):
                 file = fp
             data = split_png_chunks(file)
         return data
-    else:
-        print("File does not exist")
+    print("File does not exist")
+    return None
 
 
 def split_png_chunks(fp):
+    """Split PNG chunks from a file or buffer"""
     if hasattr(fp, "read"):
         size = fstat(fp.fileno()).st_size
     else:
@@ -212,6 +230,7 @@ def split_png_chunks(fp):
 
 
 def write_png(chunks, output_file):
+    """Write a PNG file"""
     print(f"----> Writing {output_file}")
     print_chunks(chunks)
     with open(output_file, "wb") as file:
@@ -221,9 +240,10 @@ def write_png(chunks, output_file):
 
 
 def print_chunks(chunks, start_index=0):
+    """Print chunks"""
     if len(chunks) == 0:
         return
-    max_str = max([len(f"{get_length_of_chunk(one_chunk)}") for one_chunk in chunks])
+    max_str = max(len(f"{get_length_of_chunk(one_chunk)}") for one_chunk in chunks)
     for i, one_chunk in enumerate(chunks):
         length_part = get_length_of_chunk(one_chunk)
         data_part = get_data_of_chunk(one_chunk)
@@ -242,11 +262,13 @@ def print_chunks(chunks, start_index=0):
 
 
 def calculate_crc(chunk_type, data):
+    """Calculate the CRC of a chunk"""
     i = zlib.crc32(chunk_type + data) & 0xFFFFFFFF
     return i.to_bytes(4, "big")
 
 
 def create_ihdr_chunk(width, height):
+    """Create an IHDR chunk"""
     chunk_type = b"IHDR"
     data = (
         width.to_bytes(4, byteorder="big")
@@ -262,6 +284,7 @@ def create_ihdr_chunk(width, height):
 
 
 def create_iend_chunk():
+    """Create an IEND chunk"""
     chunk_type = b"IEND"
     data = b""
     crc = calculate_crc(chunk_type, data)
@@ -269,12 +292,14 @@ def create_iend_chunk():
 
 
 def remove_chunk_by_type(chunks, filter_type):
+    """Remove chunks by type"""
     return [
         one_chunk for one_chunk in chunks if get_type_of_chunk(one_chunk) != filter_type
     ]
 
 
 def fix_chunk(chunk):
+    """Fix a chunk"""
     chunk[0] = len(get_data_of_chunk(chunk))
     if chunk[1] not in CHUNKS_TYPES:
         chunk[1] = b"IDAT"
@@ -284,7 +309,8 @@ def fix_chunk(chunk):
 
 
 def get_indices(x: list, value: int) -> list:
-    indices = list()
+    """Get the indices of a value in a list"""
+    indices = []
     i = 0
     while True:
         try:
@@ -300,6 +326,7 @@ def get_indices(x: list, value: int) -> list:
 
 
 def get_binary_chunk(chunk):
+    """Get the binary representation of a chunk"""
     length_binary = chunk[0].to_bytes(4, byteorder="big")
     type_binary = get_type_of_chunk(chunk)
     data = get_data_of_chunk(chunk)
@@ -308,12 +335,13 @@ def get_binary_chunk(chunk):
 
 
 def extract_sub_chunk(one_chunk):
+    """Extract sub chunks from a chunk"""
     chunked = get_binary_chunk(one_chunk)
     indices = get_indices(chunked, b"IDAT")
     len_idat = len(b"IDAT")
     chunks = []
     start_chunk = indices[0]
-    for i, one_indice in enumerate(indices):
+    for _i, one_indice in enumerate(indices):
         length_binary = chunked[start_chunk - 4 : start_chunk]
         real_length = int.from_bytes(length_binary, byteorder="big")
         if real_length <= 0:
@@ -340,6 +368,7 @@ def extract_sub_chunk(one_chunk):
 
 
 def try_decompress(data):
+    """Try to decompress data"""
     try:
         return zlib.decompress(data)
     except zlib.error as e:
@@ -348,6 +377,7 @@ def try_decompress(data):
 
 
 def decode_ihdr(data):
+    """Decode IHDR chunk data"""
     width = int.from_bytes(data[0:4], byteorder="big")
     height = int.from_bytes(data[4:8], byteorder="big")
     bit_depth = data[8]
@@ -367,6 +397,7 @@ def decode_ihdr(data):
 
 
 def calculate_decompressed_length(width, height, bit_depth, color_type):
+    """Calculate the total length of the decompressed image"""
     if color_type == 2:  # RGB
         samples_per_pixel = 3
     elif color_type == 6:  # RGBA
@@ -386,6 +417,7 @@ def calculate_decompressed_length(width, height, bit_depth, color_type):
 
 
 def undo_filtering(scanline, prev_scanline=None, bpp=3):
+    """Undo filtering on a scanline"""
     filter_type = scanline[0]
     filtered_scanline = bytearray(scanline[1:])
 
@@ -399,23 +431,23 @@ def undo_filtering(scanline, prev_scanline=None, bpp=3):
 
     if filter_type == 0:
         return filtered_scanline
-    elif filter_type == 1:
+    if filter_type == 1:
         for i in range(bpp, len(filtered_scanline)):
             filtered_scanline[i] = (
                 filtered_scanline[i] + filtered_scanline[i - bpp]
             ) % 256
         return filtered_scanline
-    elif filter_type == 2:
+    if filter_type == 2:
         for i in range(len(filtered_scanline)):
             filtered_scanline[i] = (filtered_scanline[i] + prev_scanline[i]) % 256
         return filtered_scanline
-    elif filter_type == 3:
+    if filter_type == 3:
         for i in range(len(filtered_scanline)):
             left = filtered_scanline[i - bpp] if i >= bpp else 0
             up = prev_scanline[i]
             filtered_scanline[i] = (filtered_scanline[i] + (left + up) // 2) % 256
         return filtered_scanline
-    elif filter_type == 4:
+    if filter_type == 4:
         for i in range(len(filtered_scanline)):
             left = filtered_scanline[i - bpp] if i >= bpp else 0
             up = prev_scanline[i]
@@ -432,11 +464,11 @@ def undo_filtering(scanline, prev_scanline=None, bpp=3):
                 pr = up_left
             filtered_scanline[i] = (filtered_scanline[i] + pr) % 256
         return filtered_scanline
-    else:
-        raise ValueError(f"Invalid filter type: {filter_type}")
+    raise ValueError(f"Invalid filter type: {filter_type}")
 
 
 def parse_idat(idat_data, width, height, bit_depth, color_type):
+    """Parse IDAT data and undo filtering"""
     if color_type == 2:  # RGB
         bpp = 3
     elif color_type == 6:  # RGBA

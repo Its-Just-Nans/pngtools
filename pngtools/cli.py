@@ -44,7 +44,7 @@ class CLI(cmd2.Cmd):
 
     complete_read_file = cmd2.Cmd.path_complete  # complete file path
 
-    def do_show_chunks(self, args):
+    def do_show_chunks(self, _args):
         """Show the chunks"""
         if self.chunks:
             print_chunks(self.chunks)
@@ -142,6 +142,7 @@ class CLI(cmd2.Cmd):
             print("No chunks")
 
     def extract_sub_chunk(self, index):
+        """Extract sub chunk"""
         chunks_to_add = extract_sub_chunk(self.chunks.pop(index))
         if len(chunks_to_add) > 0:
             print("Extracted chunks:")
@@ -171,7 +172,7 @@ class CLI(cmd2.Cmd):
         if self.chunks:
             self.chunks = remove_chunk_by_type(self.chunks, chunk_type)
 
-    def do_show_ihdr(self, args):
+    def do_show_ihdr(self, _args):
         """Show the IHDR chunk"""
         if self.chunks:
             indexes = [
@@ -199,12 +200,12 @@ class CLI(cmd2.Cmd):
                 print("Filter method:", filter_method)
                 print("Interlace method:", interlace_method)
 
-    def do_add_iend(self, args):
+    def do_add_iend(self, _args):
         """Add an IEND chunk"""
         if self.chunks:
             self.chunks.append(create_iend_chunk())
 
-    def do_acropalypse(self, args):
+    def do_acropalypse(self, _args):
         """Try acropalypse"""
         indexes_iend = [
             i
@@ -241,7 +242,7 @@ class CLI(cmd2.Cmd):
         decomp = try_decompress(data_idat)
         create_bmp(width, height, out_filename, decomp)
 
-    def do_exit(self, args):
+    def do_exit(self, _args):
         """Exit the program"""
         return True
 
