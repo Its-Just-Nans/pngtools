@@ -16,4 +16,4 @@ jobs:
             - name: Check spelling of entire workspace
               run: |
                   cargo install typos-cli
-                  typos --config .github/typos.toml
+                  typos
