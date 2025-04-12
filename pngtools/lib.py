@@ -35,29 +35,45 @@ CHUNKS_TYPES = {
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
-global offset
-offset = 0
+
+class ReaderHelper:
+    """Helper class to read data from a file or buffer"""
+
+    def __init__(self, fp):
+        self.is_file = hasattr(fp, "read")
+        self.fp = fp
+        self.offset = 0
+
+    def read(self, read_len):
+        """Read data from file or buffer"""
+        if self.is_file:
+            return self.fp.read(read_len)
+        else:
+            data = self.fp[self.offset : self.offset + read_len]
+            self.offset += read_len
+            return data
+
+    def size(self):
+        """Get the size of the file or buffer"""
+        if self.is_file:
+            return fstat(self.fp.fileno()).st_size
+        else:
+            return len(self.fp)
 
 
-def read_from_file(fp, read_len):
+def read_from_file(fp: ReaderHelper, read_len):
     """Read data from file or buffer"""
-    global offset
-    if hasattr(fp, "read"):
-        data = fp.read(read_len)
-    else:
-        data = fp[offset : offset + read_len]
-        offset += read_len
-    return data
+    return fp.read(read_len)
 
 
-def read_chunk(file, total_size):
+def read_chunk(file: ReaderHelper, total_size):
     """Read a chunk from a file"""
-    readed = read_from_file(file, 4)
+    read = read_from_file(file, 4)
     errors = []
-    if readed == "":
+    if read == "":
         errors.append(ERROR_CODE["EOF"])
         return None, None, None, None, errors
-    data_length = int.from_bytes(readed, byteorder="big")
+    data_length = int.from_bytes(read, byteorder="big")
     to_read = data_length
     if data_length > total_size:
         to_read = total_size - 3 * 4
@@ -148,15 +164,8 @@ def extract_data(chunks):
     return try_decompress(data_idat)
 
 
-def reset_offset():
-    """Reset the offset to 0"""
-    global offset
-    offset = 0
-
-
 def read_broken_file(filename, force_idx=0):
     """Read a broken PNG file"""
-    reset_offset()
     if exists(filename):
         with open(filename, "rb") as fp:
             file = fp.read()
@@ -165,33 +174,31 @@ def read_broken_file(filename, force_idx=0):
             print("No PNG detected")
             return None, idxs
         print(f"PNG signatures detected at {idxs}")
-        choosed_idx = force_idx if force_idx != 0 else idxs[0]
-        return split_png_chunks(file[choosed_idx:]), idxs
+        chosen_idx = force_idx if force_idx != 0 else idxs[0]
+        file = ReaderHelper(file[chosen_idx:])
+        return split_png_chunks(file), idxs
     print("File does not exist")
     return None, []
 
 
 def read_file(filename, force_read=False):
     """Read a PNG file"""
-    reset_offset()
     if exists(filename):
         with open(filename, "rb") as fp:
             if force_read:
                 file = fp.read()
             else:
                 file = fp
+            file = ReaderHelper(file)
             data = split_png_chunks(file)
         return data
     print("File does not exist")
     return None
 
 
-def split_png_chunks(fp):
+def split_png_chunks(fp: ReaderHelper):
     """Split PNG chunks from a file or buffer"""
-    if hasattr(fp, "read"):
-        size = fstat(fp.fileno()).st_size
-    else:
-        size = len(fp)
+    size = fp.size()
     print(f"Reading ({size} bytes)")
     remaining_size = size
     magic_len = len(PNG_MAGIC)
@@ -257,7 +264,7 @@ def print_chunks(chunks, start_index=0):
         if len(one_chunk[4]) > 0:
             errors = f"Errors: {one_chunk[4]}"
         print(
-            f"Chunk {start_index+i:2d}: Length={length_part:{max_str}d}, Type={try_dec(type_part)}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
+            f"Chunk {start_index + i:2d}: Length={length_part:{max_str}d}, Type={try_dec(type_part)}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
         )
 
 
@@ -416,97 +423,98 @@ def calculate_decompressed_length(width, height, bit_depth, color_type):
     return total_length
 
 
-def undo_filtering(scanline, prev_scanline=None, bpp=3):
-    """Undo filtering on a scanline"""
-    filter_type = scanline[0]
-    filtered_scanline = bytearray(scanline[1:])
+def paeth_predictor(a, b, c):
+    """Paeth predictor function used in PNG filtering.
 
-    if prev_scanline is None:
-        prev_scanline = bytes([0] * len(filtered_scanline))
+    Args:
+        a: Left pixel.
+        b: Above pixel.
+        c: Upper-left pixel.
 
-    if len(prev_scanline) != len(filtered_scanline):
-        raise ValueError(
-            f"Length mismatch: prev_scanline={len(prev_scanline)}, filtered_scanline={len(filtered_scanline)}"
+    Returns:
+        The predicted pixel value.
+    """
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    elif pb <= pc:
+        return b
+    else:
+        return c
+
+
+def unfilter_scanlines(data, width, height, bpp):
+    """Unfilter the scanlines of a PNG image."""
+    scanline_length = width * bpp
+    result = bytearray()
+    prev_line = bytearray([0] * scanline_length)
+    offset = 0
+
+    for _ in range(height):
+        filter_type = data[offset]
+        offset += 1
+        scanline = bytearray(data[offset : offset + scanline_length])
+        offset += scanline_length
+
+        if filter_type == 0:  # None
+            pass
+        elif filter_type == 1:  # Sub
+            for i in range(bpp, len(scanline)):
+                scanline[i] = (scanline[i] + scanline[i - bpp]) % 256
+        elif filter_type == 2:  # Up
+            for i, sc in enumerate(scanline):
+                scanline[i] = (sc + prev_line[i]) % 256
+        elif filter_type == 3:  # Average
+            for i, sc in enumerate(scanline):
+                left = scanline[i - bpp] if i >= bpp else 0
+                up = prev_line[i]
+                scanline[i] = (sc + ((left + up) // 2)) % 256
+        elif filter_type == 4:  # Paeth
+            for i, sc in enumerate(scanline):
+                a = scanline[i - bpp] if i >= bpp else 0
+                b = prev_line[i]
+                c = prev_line[i - bpp] if i >= bpp else 0
+                scanline[i] = (sc + paeth_predictor(a, b, c)) % 256
+        else:
+            raise ValueError(f"Unknown filter type: {filter_type}")
+
+        result.extend(scanline)
+        prev_line = scanline
+
+    return result
+
+
+def parse_idat(unzip_idat_data, width, height, bit_depth, color_type):
+    """Parse IDAT data and return pixel values."""
+    if bit_depth != 8:
+        raise NotImplementedError(
+            "Only 8-bit depth is supported in this implementation"
         )
 
-    if filter_type == 0:
-        return filtered_scanline
-    if filter_type == 1:
-        for i in range(bpp, len(filtered_scanline)):
-            filtered_scanline[i] = (
-                filtered_scanline[i] + filtered_scanline[i - bpp]
-            ) % 256
-        return filtered_scanline
-    if filter_type == 2:
-        for i in range(len(filtered_scanline)):
-            filtered_scanline[i] = (filtered_scanline[i] + prev_scanline[i]) % 256
-        return filtered_scanline
-    if filter_type == 3:
-        for i in range(len(filtered_scanline)):
-            left = filtered_scanline[i - bpp] if i >= bpp else 0
-            up = prev_scanline[i]
-            filtered_scanline[i] = (filtered_scanline[i] + (left + up) // 2) % 256
-        return filtered_scanline
-    if filter_type == 4:
-        for i in range(len(filtered_scanline)):
-            left = filtered_scanline[i - bpp] if i >= bpp else 0
-            up = prev_scanline[i]
-            up_left = prev_scanline[i - bpp] if i >= bpp else 0
-            p = left + up - up_left
-            pa = abs(p - left)
-            pb = abs(p - up)
-            pc = abs(p - up_left)
-            if pa <= pb and pa <= pc:
-                pr = left
-            elif pb <= pc:
-                pr = up
-            else:
-                pr = up_left
-            filtered_scanline[i] = (filtered_scanline[i] + pr) % 256
-        return filtered_scanline
-    raise ValueError(f"Invalid filter type: {filter_type}")
-
-
-def parse_idat(idat_data, width, height, bit_depth, color_type):
-    """Parse IDAT data and undo filtering"""
-    if color_type == 2:  # RGB
+    if color_type == 2:  # Truecolor (RGB)
         bpp = 3
-    elif color_type == 6:  # RGBA
+    elif color_type == 6:  # Truecolor with alpha (RGBA)
         bpp = 4
     else:
-        raise ValueError("Unsupported color type")
-
-    bytes_per_pixel = (bit_depth * bpp) // 8
-    scanline_length = width * bytes_per_pixel
-    scanline_bytes = scanline_length + 1  # Plus 1 for the filter type byte
-
-    bmp_data = bytearray()
-    prev_scanline = None
-
-    for i in range(height):
-        scanline_start = i * scanline_bytes
-        scanline_end = scanline_start + scanline_bytes
-        scanline = idat_data[scanline_start:scanline_end]
-        print(
-            f"Processing scanline {i}: start={scanline_start}, end={scanline_end}, filter_type={scanline[0]}"
+        raise NotImplementedError(
+            f"Color type {color_type} not supported in this implementation"
         )
-        print(f"Scanline length: {len(scanline)}, Expected: {scanline_bytes}")
-        filtered_scanline = undo_filtering(scanline, prev_scanline, bytes_per_pixel)
-        print(f"Filtered scanline length: {len(filtered_scanline)}")
 
-        if color_type == 6:  # RGBA to RGB
-            converted_scanline = bytearray()
-            for j in range(0, len(filtered_scanline), 4):
-                converted_scanline.extend(filtered_scanline[j : j + 3])
-            filtered_scanline = converted_scanline
-            print(f"Converted scanline length (RGBA to RGB): {len(filtered_scanline)}")
+    unfiltered_data = unfilter_scanlines(unzip_idat_data, width, height, bpp)
 
-        bmp_data.extend(filtered_scanline)
-        prev_scanline = bytearray(
-            filtered_scanline
-        )  # Update after conversion to ensure correct length
+    pixels = []
+    for i in range(0, len(unfiltered_data), bpp):
+        if bpp == 3:
+            r, g, b = unfiltered_data[i : i + 3]
+            pixels.append((r, g, b))
+        else:
+            r, g, b, a = unfiltered_data[i : i + 4]
+            pixels.append((r, g, b, a))
 
-    return bmp_data
+    return [x for pixel in pixels for x in pixel]
 
 
 if __name__ == "__main__":

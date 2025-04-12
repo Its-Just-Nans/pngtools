@@ -28,6 +28,7 @@ from .lib import (
 )
 
 from .bmp import create_bmp  # noqa: F401
+from .ppm import create_ppm  # noqa: F401
 from .cli import (
     cli_main,  # noqa: F401
     CLI,  # noqa: F401

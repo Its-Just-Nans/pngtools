@@ -1,0 +1,19 @@
+name: Spell Check
+on:
+    push:
+        branches: ["main"]
+
+    workflow_dispatch:
+
+jobs:
+    run:
+        name: Spell Check
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Actions Repository
+              uses: actions/checkout@v4
+
+            - name: Check spelling of entire workspace
+              run: |
+                  cargo install typos-cli
+                  typos --config .github/typos.toml

@@ -1,4 +1,4 @@
-# /bin/env python3
+#!/bin/env python3
 
 from os.path import join, expanduser
 import cmd2
@@ -12,13 +12,13 @@ from .lib import (
     extract_sub_chunk,
     try_decompress,
     extract_idat,
-    parse_idat,
     get_data_of_chunk,
     get_type_of_chunk,
     decode_ihdr,
     read_file,
 )
 from .bmp import create_bmp
+from .ppm import create_ppm
 
 PATH_HISTORY = join(expanduser("~"), ".pngtools_history.dat")
 
@@ -227,7 +227,27 @@ class CLI(cmd2.Cmd):
 
     @cmd2.with_argparser(bitmap_parser)
     def do_create_bmp(self, args):
-        """Test"""
+        """Create a bmp from the chunks"""
+        out_filename = args.filename
+        data_idat = b"".join(extract_idat(self.chunks))
+        (
+            width,
+            height,
+            bit_depth,
+            color_type,
+            _,
+            _,
+            _,
+        ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
+        decomp = try_decompress(data_idat)
+        create_bmp(out_filename, width, height, bit_depth, color_type, decomp)
+
+    ppm_parser = cmd2.Cmd2ArgumentParser()
+    ppm_parser.add_argument("filename", help="Output filename")
+
+    @cmd2.with_argparser(ppm_parser)
+    def do_create_ppm(self, args):
+        """Create a ppm from the chunks"""
         out_filename = args.filename
         data_idat = b"".join(extract_idat(self.chunks))
         (
@@ -240,7 +260,7 @@ class CLI(cmd2.Cmd):
             _,
         ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
         decomp = try_decompress(data_idat)
-        create_bmp(width, height, out_filename, decomp)
+        create_ppm(out_filename, width, height, decomp)
 
     def do_exit(self, _args):
         """Exit the program"""
@@ -248,6 +268,7 @@ class CLI(cmd2.Cmd):
 
 
 def cli_main():
+    """Main function to run the CLI"""
     import sys
 
     c = CLI()
