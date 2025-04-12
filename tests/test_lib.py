@@ -229,3 +229,25 @@ def test_convert_to_ppm():
         height,
         raw_data,
     )
+
+
+def test_interlaced():
+    """Test reading an interlaced PNG file."""
+    chunks = read_file("tests/pnglogo-grr.png")
+    assert get_type_of_chunk(chunks[0]) == b"IHDR"
+    (
+        width,
+        height,
+        bit_depth,
+        color_type,
+        compression_method,
+        filter_method,
+        interlace_method,
+    ) = decode_ihdr(get_data_of_chunk(chunks[0]))
+    assert width == 1024
+    assert height == 768
+    assert bit_depth == 8
+    assert color_type == 2
+    assert compression_method == 0
+    assert filter_method == 0
+    assert interlace_method == 1

@@ -487,34 +487,71 @@ def unfilter_scanlines(data, width, height, bpp):
     return result
 
 
-def parse_idat(unzip_idat_data, width, height, bit_depth, color_type):
+def deinterlace_adam7(data, width, height, bpp):
+    """Deinterlace Adam7 interlaced PNG data."""
+    # Adam7 pattern: (x_start, y_start, x_step, y_step)
+    passes = [
+        (0, 0, 8, 8),  # pass 1
+        (4, 0, 8, 8),  # pass 2
+        (0, 4, 4, 8),  # pass 3
+        (2, 0, 4, 4),  # pass 4
+        (0, 2, 2, 4),  # pass 5
+        (1, 0, 2, 2),  # pass 6
+        (0, 1, 1, 2),  # pass 7
+    ]
+
+    img = bytearray(width * height * bpp)
+    offset = 0
+
+    for x_start, y_start, x_step, y_step in passes:
+        pass_width = (width - x_start + x_step - 1) // x_step
+        pass_height = (height - y_start + y_step - 1) // y_step
+        if pass_width == 0 or pass_height == 0:
+            continue
+
+        row_bytes = pass_width * bpp
+        scanline_len = (row_bytes + 1) * pass_height
+        pass_data = data[offset : offset + scanline_len]
+        offset += scanline_len
+
+        unfiltered = unfilter_scanlines(pass_data, pass_width, pass_height, bpp)
+
+        i = 0
+        for y in range(pass_height):
+            for x in range(pass_width):
+                pixel_offset = (
+                    (y_start + y * y_step) * width + (x_start + x * x_step)
+                ) * bpp
+                img[pixel_offset : pixel_offset + bpp] = unfiltered[i : i + bpp]
+                i += bpp
+
+    return img
+
+
+def parse_idat(
+    unzip_idat_data, width, height, bit_depth, color_type, interlace_method=0
+):
     """Parse IDAT data and return pixel values."""
     if bit_depth != 8:
         raise NotImplementedError(
             "Only 8-bit depth is supported in this implementation"
         )
 
-    if color_type == 2:  # Truecolor (RGB)
+    if color_type == 2:  # RGB
         bpp = 3
-    elif color_type == 6:  # Truecolor with alpha (RGBA)
+    elif color_type == 6:  # RGBA
         bpp = 4
     else:
-        raise NotImplementedError(
-            f"Color type {color_type} not supported in this implementation"
-        )
+        raise NotImplementedError(f"Unsupported color type: {color_type}")
 
-    unfiltered_data = unfilter_scanlines(unzip_idat_data, width, height, bpp)
+    if interlace_method == 0:
+        raw = unfilter_scanlines(unzip_idat_data, width, height, bpp)
+    elif interlace_method == 1:
+        raw = deinterlace_adam7(unzip_idat_data, width, height, bpp)
+    else:
+        raise NotImplementedError(f"Unsupported interlace method: {interlace_method}")
 
-    pixels = []
-    for i in range(0, len(unfiltered_data), bpp):
-        if bpp == 3:
-            r, g, b = unfiltered_data[i : i + 3]
-            pixels.append((r, g, b))
-        else:
-            r, g, b, a = unfiltered_data[i : i + 4]
-            pixels.append((r, g, b, a))
-
-    return [x for pixel in pixels for x in pixel]
+    return raw
 
 
 if __name__ == "__main__":
