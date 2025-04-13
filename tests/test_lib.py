@@ -22,11 +22,19 @@ from pngtools import (
     calculate_decompressed_length,
     decode_phy,
     ERROR_CODE,
+    PNG_MAGIC,
     extract_sub_chunks,
     get_errors_of_chunk,
     acropalypse,
 )
 from pngtools.ppm import convert_rgba_to_rgb
+
+
+def test_signature():
+    """Test PNG signature."""
+    with open("tests/511-200x300.png", "rb") as f:
+        signature = f.read(8)
+    assert signature == PNG_MAGIC
 
 
 def test_read_file():

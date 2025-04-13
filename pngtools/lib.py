@@ -270,6 +270,7 @@ def print_chunks(chunks: List[Chunk], start_index=0):
         data_part = get_data_of_chunk(one_chunk)
         crc_part = get_crc_of_chunk(one_chunk)
         type_part = get_type_of_chunk(one_chunk)
+        type_dec = try_dec(type_part)
         errors_part = get_errors_of_chunk(one_chunk)
         crc_hex = try_hex(crc_part)
         checksum = calculate_crc(type_part, data_part)
@@ -278,9 +279,9 @@ def print_chunks(chunks: List[Chunk], start_index=0):
         errors = ""
         if len(errors_part) > 0:
             errors = f"Errors: {errors_part}"
-        print(
-            f"Chunk {start_index + i:2d}: Length={length_part:{max_str}d}, Type={try_dec(type_part)}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
-        )
+        f_chunk = f"Length={length_part:{max_str}d}, Type={type_dec},"
+        f_chunk = f"{f_chunk} CRC={crc_hex} ({is_correct}), data={data_display}"
+        print(f"Chunk {start_index + i:2d}: {f_chunk} {errors}")
 
 
 def calculate_crc(chunk_type, data):
@@ -572,7 +573,11 @@ def parse_idat(
 
 
 def acropalypse(chunks: List[Chunk], crop_width, crop_height, bit_depth, color_type):
-    """Acropalypse function"""
+    """Acropalypse function
+
+    Inpired from
+    https://gist.github.com/DavidBuchanan314/93de9d07f7fab494bcdf17c2bd6cef02 (MIT License)
+    """
     # keep only the IDAT chunks
     idat_chunks = get_by_type(chunks, b"IDAT")
     data_idat = b"".join(extract_idat(idat_chunks))

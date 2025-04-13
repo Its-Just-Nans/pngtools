@@ -31,5 +31,7 @@ def create_ppm(filename, width, height, raw_data):
 
     This functions needs a RGB array of data. (RGBRGBRGB...)
     RGBA should be converted to RGB before calling this function.
+
+    PPM can be either ASCII or binary. This function creates an ASCII PPM file.
     """
     write_ascii_ppm(filename, width, height, raw_data)
