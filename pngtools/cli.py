@@ -1,15 +1,21 @@
 #!/bin/env python3
 
+"""pngtools cli"""
+
 from os.path import join, expanduser
 import cmd2
 from .lib import (
+    ERROR_CODE,
+    acropalypse,
+    get_errors_of_chunk,
+    parse_idat,
     write_png,
     print_chunks,
     fix_chunk,
     create_ihdr_chunk,
     remove_chunk_by_type,
     create_iend_chunk,
-    extract_sub_chunk,
+    extract_sub_chunks,
     try_decompress,
     extract_idat,
     get_data_of_chunk,
@@ -18,7 +24,7 @@ from .lib import (
     read_file,
 )
 from .bmp import create_bmp
-from .ppm import create_ppm
+from .ppm import convert_rgba_to_rgb, create_ppm
 
 PATH_HISTORY = join(expanduser("~"), ".pngtools_history.dat")
 
@@ -33,6 +39,7 @@ class CLI(cmd2.Cmd):
             persistent_history_file=PATH_HISTORY,
         )
         self.prompt = "pngtools> "
+        self.debug = True
 
     read_file_parser = cmd2.Cmd2ArgumentParser()
     read_file_parser.add_argument("filename", help="Path to the file")
@@ -64,7 +71,7 @@ class CLI(cmd2.Cmd):
             print("No chunks to write")
 
     delete_chunk_parser = cmd2.Cmd2ArgumentParser()
-    delete_chunk_parser.add_argument("index", type=int, help="Index to remove")
+    delete_chunk_parser.add_argument("index", type=int, help="Index to delete")
 
     @cmd2.with_argparser(delete_chunk_parser)
     def do_delete_chunk(self, args):
@@ -73,10 +80,10 @@ class CLI(cmd2.Cmd):
         if len(self.chunks) > index:
             self.chunks.pop(index)
         else:
-            print("Invalid index")
+            print(f"Invalid index {index} to delete")
 
     fix_chunk_parser = cmd2.Cmd2ArgumentParser()
-    fix_chunk_parser.add_argument("index", type=int, help="Index to remove")
+    fix_chunk_parser.add_argument("index", type=int, help="Index to fix")
 
     @cmd2.with_argparser(fix_chunk_parser)
     def do_fix_chunk(self, args):
@@ -85,7 +92,7 @@ class CLI(cmd2.Cmd):
         if len(self.chunks) >= index:
             self.chunks[index] = fix_chunk(self.chunks[index])
         else:
-            print("Invalid index")
+            print("Invalid index to fix")
 
     show_data_parser = cmd2.Cmd2ArgumentParser()
     show_data_parser.add_argument("index", type=int, help="Index to show data")
@@ -98,13 +105,13 @@ class CLI(cmd2.Cmd):
             if len(self.chunks) >= index:
                 print(get_data_of_chunk(self.chunks[index]))
             else:
-                print("Invalid index")
+                print("Invalid index to show data")
         else:
-            print("No chunks")
+            print("No chunks to show data")
 
     show_data_uncompressed_parser = cmd2.Cmd2ArgumentParser()
     show_data_uncompressed_parser.add_argument(
-        "index", type=int, help="Index to show data"
+        "index", type=int, help="Index to show uncompressed data"
     )
 
     @cmd2.with_argparser(show_data_uncompressed_parser)
@@ -124,26 +131,26 @@ class CLI(cmd2.Cmd):
         else:
             print("No chunks")
 
-    do_extract_sub_chunk_parser = cmd2.Cmd2ArgumentParser()
-    do_extract_sub_chunk_parser.add_argument(
-        "index", type=int, help="Index to show data"
+    do_extract_sub_chunks_parser = cmd2.Cmd2ArgumentParser()
+    do_extract_sub_chunks_parser.add_argument(
+        "index", type=int, help="Index to extract sub chunks"
     )
 
-    @cmd2.with_argparser(do_extract_sub_chunk_parser)
-    def do_extract_sub_chunk(self, args):
+    @cmd2.with_argparser(do_extract_sub_chunks_parser)
+    def do_extract_sub_chunks(self, args):
         """show data of chunk"""
         index = int(args.index)
         if len(self.chunks) > 0:
             if len(self.chunks) >= index:
-                self.extract_sub_chunk(index)
+                self.sub_chunks(index)
             else:
                 print("Invalid index")
         else:
             print("No chunks")
 
-    def extract_sub_chunk(self, index):
+    def sub_chunks(self, index):
         """Extract sub chunk"""
-        chunks_to_add = extract_sub_chunk(self.chunks.pop(index))
+        chunks_to_add = extract_sub_chunks(self.chunks.pop(index))
         if len(chunks_to_add) > 0:
             print("Extracted chunks:")
             print_chunks(chunks_to_add)
@@ -207,20 +214,42 @@ class CLI(cmd2.Cmd):
 
     def do_acropalypse(self, _args):
         """Try acropalypse"""
+        (
+            width,
+            height,
+            bit_depth,
+            color_type,
+            _,
+            _,
+            _,
+        ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
         indexes_iend = [
             i
             for i, one_chunk in enumerate(self.chunks)
             if get_type_of_chunk(one_chunk) == b"IEND"
         ]
-        if len(indexes_iend) > 1:
-            print("More than one IEND chunk !")
-            print("Removing all IEND chunks")
-            self.chunks = remove_chunk_by_type(self.chunks, b"IEND")
-            last_index = len(self.chunks) - 1
-            print(f"Extracting data of last chunk ({last_index})")
-            self.extract_sub_chunk(last_index)
-            print("Final chunks:")
-            print_chunks(self.chunks)
+        if len(indexes_iend) <= 1:
+            print("No IEND chunk found")
+            return
+        print("More than one IEND chunk !")
+        print("Removing all correct chunks")
+        self.chunks = [
+            chunk
+            for i, chunk in enumerate(self.chunks)
+            if ERROR_CODE["WRONG_CRC"] in get_errors_of_chunk(chunk)
+        ]
+        print("Chunks after removing all correct chunks:")
+        print_chunks(self.chunks)
+        last_index = len(self.chunks) - 1
+        print(f"Extracting data of last chunk ({last_index})")
+        self.sub_chunks(last_index)
+        print("Final chunks:")
+        print_chunks(self.chunks)
+        data = acropalypse(self.chunks, width, height, bit_depth, color_type)
+        if color_type == 6:
+            # RGBA to RGB - we remove the 4th value of each pixel
+            data = convert_rgba_to_rgb(data)
+        create_ppm("acropalypse.ppm", width, height, data)
 
     bitmap_parser = cmd2.Cmd2ArgumentParser()
     bitmap_parser.add_argument("filename", help="Output filename")
@@ -240,7 +269,8 @@ class CLI(cmd2.Cmd):
             _,
         ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
         decomp = try_decompress(data_idat)
-        create_bmp(out_filename, width, height, bit_depth, color_type, decomp)
+        data = parse_idat(decomp, width, height, bit_depth, color_type)
+        create_bmp(out_filename, width, height, bit_depth, color_type, data)
 
     ppm_parser = cmd2.Cmd2ArgumentParser()
     ppm_parser.add_argument("filename", help="Output filename")
@@ -253,14 +283,18 @@ class CLI(cmd2.Cmd):
         (
             width,
             height,
-            _,
-            _,
+            bit_depth,
+            color_type,
             _,
             _,
             _,
         ) = decode_ihdr(get_data_of_chunk(self.chunks[0]))
         decomp = try_decompress(data_idat)
-        create_ppm(out_filename, width, height, decomp)
+        data = parse_idat(decomp, width, height, bit_depth, color_type)
+        if color_type == 6:
+            # RGBA to RGB - we remove the 4th value of each pixel
+            data = convert_rgba_to_rgb(data)
+        create_ppm(out_filename, width, height, data)
 
     def do_exit(self, _args):
         """Exit the program"""
@@ -269,7 +303,7 @@ class CLI(cmd2.Cmd):
 
 def cli_main():
     """Main function to run the CLI"""
-    import sys
+    import sys  # pylint: disable=import-outside-toplevel
 
     c = CLI()
     sys.exit(c.cmdloop())

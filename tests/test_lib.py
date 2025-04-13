@@ -21,7 +21,12 @@ from pngtools import (
     get_length_of_chunk,
     calculate_decompressed_length,
     decode_phy,
+    ERROR_CODE,
+    extract_sub_chunks,
+    get_errors_of_chunk,
+    acropalypse,
 )
+from pngtools.ppm import convert_rgba_to_rgb
 
 
 def test_read_file():
@@ -67,7 +72,7 @@ def test_delete_create_iend():
     chunks = remove_chunk_by_type(chunks, b"IEND")
     chunks.append(create_iend_chunk())
     assert len(chunks) == 23
-    assert chunks[-1][1] == b"IEND"
+    assert get_type_of_chunk(chunks[-1]) == b"IEND"
 
 
 def test_decode_ihdr():
@@ -251,3 +256,31 @@ def test_interlaced():
     assert compression_method == 0
     assert filter_method == 0
     assert interlace_method == 1
+
+
+def _test_acropalypse():
+    """Test reading an acropalypse PNG file."""
+    chunks = read_file("tests/acropalypse.png")
+    assert get_type_of_chunk(chunks[0]) == b"IHDR"
+    (
+        width,
+        height,
+        bit_depth,
+        color_type,
+        _,
+        _,
+        _,
+    ) = decode_ihdr(get_data_of_chunk(chunks[0]))
+    chunks = [
+        chunk
+        for i, chunk in enumerate(chunks)
+        if ERROR_CODE["WRONG_CRC"] in get_errors_of_chunk(chunk)
+    ]
+    assert len(chunks) == 1
+    chunks = extract_sub_chunks(chunks[0])
+    data, orig_width, orig_heigth = acropalypse(
+        chunks, width, height, bit_depth, color_type
+    )
+    assert data is not None
+    data = convert_rgba_to_rgb(data)
+    create_ppm("tests/acropalypsed.ppm", data, orig_width, orig_heigth)

@@ -20,6 +20,16 @@ def write_ascii_ppm(filename, width, height, raw_data):
         f.write("".join(buffer).encode("utf-8"))
 
 
+def convert_rgba_to_rgb(raw_data):
+    """Convert RGBA data to RGB data."""
+    # RGBA to RGB - we remove the 4th value of each pixel
+    return [raw_data[i + j] for i in range(0, len(raw_data), 4) for j in range(3)]
+
+
 def create_ppm(filename, width, height, raw_data):
-    """Create a PPM file."""
+    """Create a PPM file.
+
+    This functions needs a RGB array of data. (RGBRGBRGB...)
+    RGBA should be converted to RGB before calling this function.
+    """
     write_ascii_ppm(filename, width, height, raw_data)

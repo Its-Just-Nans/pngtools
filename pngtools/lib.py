@@ -3,6 +3,7 @@
 from os import fstat
 from os.path import exists
 import zlib
+from typing import List, Tuple
 
 ERROR_CODE = {
     "WRONG_LENGTH": "Wrong length",
@@ -36,6 +37,11 @@ CHUNKS_TYPES = {
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
+# chunk is a list of 5 elements (for now) -> can change in the future
+# [length, chunk_type, data, crc, errors]
+Chunk = Tuple[int, bytes, bytes, bytes, List[str]]
+
+
 class ReaderHelper:
     """Helper class to read data from a file or buffer"""
 
@@ -61,14 +67,9 @@ class ReaderHelper:
             return len(self.fp)
 
 
-def read_from_file(fp: ReaderHelper, read_len):
-    """Read data from file or buffer"""
-    return fp.read(read_len)
-
-
 def read_chunk(file: ReaderHelper, total_size):
     """Read a chunk from a file"""
-    read = read_from_file(file, 4)
+    read = file.read(4)
     errors = []
     if read == "":
         errors.append(ERROR_CODE["EOF"])
@@ -78,11 +79,11 @@ def read_chunk(file: ReaderHelper, total_size):
     if data_length > total_size:
         to_read = total_size - 3 * 4
         errors.append(ERROR_CODE["WRONG_LENGTH"])
-    chunk_type = read_from_file(file, 4)
+    chunk_type = file.read(4)
     if chunk_type not in CHUNKS_TYPES:
         errors.append(ERROR_CODE["WRONG_TYPE"])
-    data = read_from_file(file, to_read)
-    crc = read_from_file(file, 4)
+    data = file.read(to_read)
+    crc = file.read(4)
     if crc != calculate_crc(chunk_type, data):
         errors.append(ERROR_CODE["WRONG_CRC"])
     return data_length, chunk_type, data, crc, errors
@@ -103,7 +104,7 @@ def try_hex(a):
         return "????"
 
 
-def get_by_type(chunks, current_type="IDAT"):
+def get_by_type(chunks: List[Chunk], current_type="IDAT") -> List[Chunk]:
     """Get all chunks of a specific type"""
     return [
         one_chunk
@@ -112,31 +113,37 @@ def get_by_type(chunks, current_type="IDAT"):
     ]
 
 
-# chunk is a list of 5 elements (for now) -> can change in the future
-# [length, chunk_type, data, crc, errors]
+def _new_chunk(length, chunk_type, data, crc, errors) -> Chunk:
+    """Create a new chunk"""
+    return (length, chunk_type, data, crc, errors)
 
 
-def get_length_of_chunk(one_chunk):
+def get_length_of_chunk(one_chunk: Chunk):
     """Get the length of a chunk"""
     return one_chunk[0]
 
 
-def get_data_of_chunk(one_chunk):
-    """Get the data of a chunk"""
-    return one_chunk[2]
-
-
-def get_crc_of_chunk(one_chunk):
-    """Get the CRC of a chunk"""
-    return one_chunk[3]
-
-
-def get_type_of_chunk(one_chunk):
+def get_type_of_chunk(one_chunk: Chunk):
     """Get the type of a chunk"""
     return one_chunk[1]
 
 
-def extract_idat(chunks):
+def get_data_of_chunk(one_chunk: Chunk):
+    """Get the data of a chunk"""
+    return one_chunk[2]
+
+
+def get_crc_of_chunk(one_chunk: Chunk):
+    """Get the CRC of a chunk"""
+    return one_chunk[3]
+
+
+def get_errors_of_chunk(one_chunk: Chunk):
+    """Get the errors of a chunk"""
+    return one_chunk[4]
+
+
+def extract_idat(chunks: List[Chunk]):
     """Extract IDAT chunks from a list of chunks"""
     return [
         get_data_of_chunk(one_chunk)
@@ -145,7 +152,7 @@ def extract_idat(chunks):
     ]
 
 
-def decode_phy(chunk):
+def decode_phy(chunk: Chunk):
     """Decode the pHYs chunk data"""
     phy_chunk_data = get_data_of_chunk(chunk)
     x_pixels_per_unit = int.from_bytes(phy_chunk_data[0:4], byteorder="big")
@@ -158,13 +165,18 @@ def decode_phy(chunk):
     return x_pixels_per_unit, y_pixels_per_unit, unit_specifier
 
 
-def extract_data(chunks):
-    """extract data from IDAT chunks and try to decompress it"""
+def extract_data(chunks: List[Chunk]):
+    """extract data from IDAT chunks and try to decompress it
+
+    `chunks`: is a list of chunks
+    """
+
+    assert isinstance(chunks, list)
     data_idat = b"".join(extract_idat(chunks))
     return try_decompress(data_idat)
 
 
-def read_broken_file(filename, force_idx=0):
+def read_broken_file(filename: str, force_idx=0):
     """Read a broken PNG file"""
     if exists(filename):
         with open(filename, "rb") as fp:
@@ -181,7 +193,7 @@ def read_broken_file(filename, force_idx=0):
     return None, []
 
 
-def read_file(filename, force_read=False):
+def read_file(filename: str, force_read=False):
     """Read a PNG file"""
     if exists(filename):
         with open(filename, "rb") as fp:
@@ -202,7 +214,7 @@ def split_png_chunks(fp: ReaderHelper):
     print(f"Reading ({size} bytes)")
     remaining_size = size
     magic_len = len(PNG_MAGIC)
-    signature = read_from_file(fp, magic_len)
+    signature = fp.read(magic_len)
     remaining_size -= magic_len
     if signature != PNG_MAGIC:
         raise ValueError("File is not a PNG")
@@ -217,36 +229,38 @@ def split_png_chunks(fp: ReaderHelper):
         remaining_size -= length + 4 + len(chunk_type) + len(crc)
         if ERROR_CODE["WRONG_LENGTH"] in errors:
             if len(data) > 0 and data[-4:] == b"IEND":
-                chunk1 = [length, chunk_type, data[:-12], data[-12:-8], errors]
+                chunk1 = _new_chunk(
+                    length, chunk_type, data[:-12], data[-12:-8], errors
+                )
                 print_chunks([chunk1], idx)
                 chunks.append(chunk1)
                 len_iend = int.from_bytes(data[-8:-4], byteorder="big")
                 iend_errors = []
                 if len_iend > 0:
                     iend_errors.append(ERROR_CODE["WRONG_LENGTH"])
-                chunk2 = [len_iend, data[-4:], b"", crc, iend_errors]
+                chunk2 = _new_chunk(len_iend, data[-4:], b"", crc, iend_errors)
                 idx += 1
                 print_chunks([chunk2], idx)
                 chunks.append(chunk2)
         else:
-            chunk_to_add = [length, chunk_type, data, crc, errors]
+            chunk_to_add = _new_chunk(length, chunk_type, data, crc, errors)
             print_chunks([chunk_to_add], idx)
             chunks.append(chunk_to_add)
         idx += 1
     return chunks
 
 
-def write_png(chunks, output_file):
+def write_png(chunks: List[Chunk], output_file: str):
     """Write a PNG file"""
     print(f"----> Writing {output_file}")
     print_chunks(chunks)
     with open(output_file, "wb") as file:
-        file.write(b"\x89PNG\r\n\x1a\n")
+        file.write(PNG_MAGIC)
         for one_chunk in chunks:
             file.write(get_binary_chunk(one_chunk))
 
 
-def print_chunks(chunks, start_index=0):
+def print_chunks(chunks: List[Chunk], start_index=0):
     """Print chunks"""
     if len(chunks) == 0:
         return
@@ -256,13 +270,14 @@ def print_chunks(chunks, start_index=0):
         data_part = get_data_of_chunk(one_chunk)
         crc_part = get_crc_of_chunk(one_chunk)
         type_part = get_type_of_chunk(one_chunk)
+        errors_part = get_errors_of_chunk(one_chunk)
         crc_hex = try_hex(crc_part)
         checksum = calculate_crc(type_part, data_part)
         is_correct = crc_part == checksum
         data_display = data_part[:5] + b"..." if len(data_part) > 10 else data_part
         errors = ""
-        if len(one_chunk[4]) > 0:
-            errors = f"Errors: {one_chunk[4]}"
+        if len(errors_part) > 0:
+            errors = f"Errors: {errors_part}"
         print(
             f"Chunk {start_index + i:2d}: Length={length_part:{max_str}d}, Type={try_dec(type_part)}, CRC={crc_hex} ({is_correct}), data={data_display} {errors}"
         )
@@ -287,7 +302,7 @@ def create_ihdr_chunk(width, height):
         + b"\x00"  # Interlace method
     )
     crc = calculate_crc(chunk_type, data)
-    return [len(data), chunk_type, data, crc, []]
+    return _new_chunk(len(data), chunk_type, data, crc, [])
 
 
 def create_iend_chunk():
@@ -295,24 +310,26 @@ def create_iend_chunk():
     chunk_type = b"IEND"
     data = b""
     crc = calculate_crc(chunk_type, data)
-    return [len(data), chunk_type, data, crc, []]
+    return _new_chunk(len(data), chunk_type, data, crc, [])
 
 
-def remove_chunk_by_type(chunks, filter_type):
+def remove_chunk_by_type(chunks: List[Chunk], filter_type) -> List[Chunk]:
     """Remove chunks by type"""
     return [
         one_chunk for one_chunk in chunks if get_type_of_chunk(one_chunk) != filter_type
     ]
 
 
-def fix_chunk(chunk):
+def fix_chunk(chunk: Chunk) -> Chunk:
     """Fix a chunk"""
-    chunk[0] = len(get_data_of_chunk(chunk))
-    if chunk[1] not in CHUNKS_TYPES:
-        chunk[1] = b"IDAT"
-    chunk[3] = calculate_crc(chunk[1], get_data_of_chunk(chunk))
-    chunk[4] = []
-    return chunk
+    length = len(get_data_of_chunk(chunk))
+    chunk_type = get_type_of_chunk(chunk)
+    data = get_data_of_chunk(chunk)
+    if chunk_type not in CHUNKS_TYPES:
+        chunk_type = b"IDAT"
+    crc = calculate_crc(chunk_type, data)
+    errors = []
+    return _new_chunk(length, chunk_type, data, crc, errors)
 
 
 def get_indices(x: list, value: int) -> list:
@@ -332,16 +349,16 @@ def get_indices(x: list, value: int) -> list:
     return indices
 
 
-def get_binary_chunk(chunk):
+def get_binary_chunk(chunk: Chunk):
     """Get the binary representation of a chunk"""
-    length_binary = chunk[0].to_bytes(4, byteorder="big")
+    length_binary = get_length_of_chunk(chunk).to_bytes(4, byteorder="big")
     type_binary = get_type_of_chunk(chunk)
     data = get_data_of_chunk(chunk)
     crc = get_crc_of_chunk(chunk)
     return length_binary + type_binary + data + crc
 
 
-def extract_sub_chunk(one_chunk):
+def extract_sub_chunks(one_chunk: Chunk) -> List[Chunk]:
     """Extract sub chunks from a chunk"""
     chunked = get_binary_chunk(one_chunk)
     indices = get_indices(chunked, b"IDAT")
@@ -363,13 +380,13 @@ def extract_sub_chunk(one_chunk):
         if crc != real_crc:
             continue
         start_chunk = one_indice
-        chunk = [
+        chunk = _new_chunk(
             real_length,
             type_idat,
             data,
             crc,
             [],
-        ]
+        )
         chunks.append(chunk)
     return chunks
 
@@ -552,6 +569,39 @@ def parse_idat(
         raise NotImplementedError(f"Unsupported interlace method: {interlace_method}")
 
     return raw
+
+
+def acropalypse(chunks: List[Chunk], crop_width, crop_height, bit_depth, color_type):
+    """Acropalypse function"""
+    # keep only the IDAT chunks
+    idat_chunks = get_by_type(chunks, b"IDAT")
+    data_idat = b"".join(extract_idat(idat_chunks))
+    prefix = (
+        b"\x00"
+        + (0x8000).to_bytes(2, "little")
+        + (0x8000 ^ 0xFFFF).to_bytes(2, "little")
+        + b"X" * 0x8000
+    )
+    for i in range(len(data_idat)):
+        d = zlib.decompressobj(wbits=-15)
+        try:
+            decompressed = d.decompress(prefix + data_idat[i:]) + d.flush(zlib.Z_FINISH)
+            if d.eof and d.unused_data in [
+                b"",
+                b"\x00",
+            ]:  # there might be a null byte if we added too many padding bits
+                print(f"Found viable parse at bit offset {i}!")
+                decompressed = decompressed[0x8000:]  # remove leading padding
+                break
+        except zlib.error as _e:
+            # print(_e)
+            continue
+    else:
+        print("Failed to find viable parse :(")
+        return None, None, None
+    data = parse_idat(decompressed, crop_width, crop_height, bit_depth, color_type)
+    orig_width, orig_height = (crop_width, crop_height)
+    return data, orig_width, orig_height
 
 
 if __name__ == "__main__":
