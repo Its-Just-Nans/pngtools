@@ -575,7 +575,7 @@ def parse_idat(
 def acropalypse(chunks: List[Chunk], crop_width, crop_height, bit_depth, color_type):
     """Acropalypse function
 
-    Inpired from
+    Inspired from
     https://gist.github.com/DavidBuchanan314/93de9d07f7fab494bcdf17c2bd6cef02 (MIT License)
     """
     # keep only the IDAT chunks
