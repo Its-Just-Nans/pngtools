@@ -278,9 +278,9 @@ def _test_acropalypse():
     ]
     assert len(chunks) == 1
     chunks = extract_sub_chunks(chunks[0])
-    data, orig_width, orig_heigth = acropalypse(
+    data, orig_width, orig_height = acropalypse(
         chunks, width, height, bit_depth, color_type
     )
     assert data is not None
     data = convert_rgba_to_rgb(data)
-    create_ppm("tests/acropalypsed.ppm", data, orig_width, orig_heigth)
+    create_ppm("tests/acropalypsed.ppm", data, orig_width, orig_height)
