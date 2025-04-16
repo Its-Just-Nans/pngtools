@@ -14,6 +14,13 @@ python3 -m twine upload dist/* --verbose
 # enter token
 ```
 
+## 2025-04-16
+
+- Version 1.0.1
+- Supporting BMP
+- Supporting PPM
+- Acropalypse
+
 ## 2024-03-20
 
 - Create package

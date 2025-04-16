@@ -1,5 +1,9 @@
 # pngtools
 
+Tiny CLI to explore PNG files. Supports a subset of the PNG format and acropalypse function.
+
+[![asciicast](https://asciinema.org/a/715961.svg)](https://asciinema.org/a/715961)
+
 ## Usage
 
 ```bash
