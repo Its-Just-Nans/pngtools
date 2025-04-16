@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pngtools"
-version = "1.0.1"
+version = "1.0.2"
 description = "Tiny CLI to explore PNGs"
 readme = "README.md"
 authors = [{ name = "n4n5", email = "its.just.n4n5@gmail.com" }]

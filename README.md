@@ -1,4 +1,4 @@
-# pngtools
+# pngtools  [![pypi version](https://img.shields.io/pypi/v/pngtools)](https://pypi.org/project/pngtools/) ![pypi downloads](https://img.shields.io/pypi/dm/pngtools)
 
 Tiny CLI to explore PNG files. Supports a subset of the PNG format and acropalypse function.
 
