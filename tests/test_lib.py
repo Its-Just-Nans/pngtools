@@ -26,6 +26,7 @@ from pngtools import (
     extract_sub_chunks,
     get_errors_of_chunk,
     acropalypse,
+    print_chunks,
 )
 from pngtools.ppm import convert_rgba_to_rgb
 
@@ -266,13 +267,13 @@ def test_interlaced():
     assert interlace_method == 1
 
 
-def _test_acropalypse():
+def test_acropalypse():
     """Test reading an acropalypse PNG file."""
     chunks = read_file("tests/acropalypse.png")
     assert get_type_of_chunk(chunks[0]) == b"IHDR"
     (
-        width,
-        height,
+        _width,
+        _height,
         bit_depth,
         color_type,
         _,
@@ -286,9 +287,17 @@ def _test_acropalypse():
     ]
     assert len(chunks) == 1
     chunks = extract_sub_chunks(chunks[0])
-    data, orig_width, orig_height = acropalypse(
-        chunks, width, height, bit_depth, color_type
+    print("Sub chunks:")
+    print_chunks(chunks)
+    orig_width, orig_height = 1920, 1080
+    data = acropalypse(
+        chunks,
+        orig_width,
+        orig_height,
+        bit_depth,
+        color_type,
     )
     assert data is not None
-    data = convert_rgba_to_rgb(data)
-    create_ppm("tests/acropalypsed.ppm", data, orig_width, orig_height)
+    if color_type == 6:
+        data = convert_rgba_to_rgb(data)
+    create_ppm("tests/acropalypsed.ppm", orig_width, orig_height, data, binary=True)

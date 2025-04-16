@@ -363,30 +363,37 @@ def extract_sub_chunks(one_chunk: Chunk) -> List[Chunk]:
     """Extract sub chunks from a chunk"""
     chunked = get_binary_chunk(one_chunk)
     indices = get_indices(chunked, b"IDAT")
+    if len(indices) > 1 and indices[0] > 4:
+        indices.insert(0, 0)
     len_idat = len(b"IDAT")
     chunks = []
-    start_chunk = indices[0]
-    for _i, one_indice in enumerate(indices):
+    for i, start_chunk in enumerate(indices):
+        errors = []
         length_binary = chunked[start_chunk - 4 : start_chunk]
         real_length = int.from_bytes(length_binary, byteorder="big")
         if real_length <= 0:
-            continue
+            errors.append(ERROR_CODE["WRONG_LENGTH"])
+            real_length = indices[i + 1] - start_chunk - len_idat
         type_idat = chunked[start_chunk : start_chunk + 4]
-        assert type_idat == b"IDAT"
+        if type_idat != b"IDAT":
+            errors.append(ERROR_CODE["WRONG_TYPE"])
         data_start = start_chunk + len_idat
         data = chunked[data_start : data_start + real_length]
+        if ERROR_CODE["WRONG_TYPE"] in errors:
+            data = type_idat + data
         crc_start = data_start + real_length
         crc = chunked[crc_start : crc_start + 4]
         real_crc = calculate_crc(type_idat, data)
         if crc != real_crc:
-            continue
-        start_chunk = one_indice
+            errors.append(ERROR_CODE["WRONG_CRC"])
+        if ERROR_CODE["WRONG_LENGTH"] in errors:
+            real_length = len(data)
         chunk = _new_chunk(
             real_length,
             type_idat,
             data,
             crc,
-            [],
+            errors,
         )
         chunks.append(chunk)
     return chunks
@@ -464,7 +471,7 @@ def paeth_predictor(a, b, c):
         return c
 
 
-def unfilter_scanlines(data, width, height, bpp):
+def unfilter_scanlines(data, width, height, bpp, raise_error=True):
     """Unfilter the scanlines of a PNG image."""
     scanline_length = width * bpp
     result = bytearray()
@@ -497,7 +504,8 @@ def unfilter_scanlines(data, width, height, bpp):
                 c = prev_line[i - bpp] if i >= bpp else 0
                 scanline[i] = (sc + paeth_predictor(a, b, c)) % 256
         else:
-            raise ValueError(f"Unknown filter type: {filter_type}")
+            if raise_error:
+                raise ValueError(f"Unknown filter type: {filter_type}")
 
         result.extend(scanline)
         prev_line = scanline
@@ -505,7 +513,7 @@ def unfilter_scanlines(data, width, height, bpp):
     return result
 
 
-def deinterlace_adam7(data, width, height, bpp):
+def deinterlace_adam7(data, width, height, bpp, raise_error=True):
     """Deinterlace Adam7 interlaced PNG data."""
     # Adam7 pattern: (x_start, y_start, x_step, y_step)
     passes = [
@@ -532,7 +540,9 @@ def deinterlace_adam7(data, width, height, bpp):
         pass_data = data[offset : offset + scanline_len]
         offset += scanline_len
 
-        unfiltered = unfilter_scanlines(pass_data, pass_width, pass_height, bpp)
+        unfiltered = unfilter_scanlines(
+            pass_data, pass_width, pass_height, bpp, raise_error
+        )
 
         i = 0
         for y in range(pass_height):
@@ -547,7 +557,13 @@ def deinterlace_adam7(data, width, height, bpp):
 
 
 def parse_idat(
-    unzip_idat_data, width, height, bit_depth, color_type, interlace_method=0
+    unzip_idat_data,
+    width,
+    height,
+    bit_depth,
+    color_type,
+    interlace_method=0,
+    raise_error=True,
 ):
     """Parse IDAT data and return pixel values."""
     if bit_depth != 8:
@@ -563,34 +579,71 @@ def parse_idat(
         raise NotImplementedError(f"Unsupported color type: {color_type}")
 
     if interlace_method == 0:
-        raw = unfilter_scanlines(unzip_idat_data, width, height, bpp)
+        raw = unfilter_scanlines(unzip_idat_data, width, height, bpp, raise_error)
     elif interlace_method == 1:
-        raw = deinterlace_adam7(unzip_idat_data, width, height, bpp)
+        raw = deinterlace_adam7(unzip_idat_data, width, height, bpp, raise_error)
     else:
         raise NotImplementedError(f"Unsupported interlace method: {interlace_method}")
 
     return raw
 
 
-def acropalypse(chunks: List[Chunk], crop_width, crop_height, bit_depth, color_type):
+def acropalypse(chunks: List[Chunk], orig_width, orig_height, bit_depth, color_type):
     """Acropalypse function
+
+    Args:
+        chunks: List of chunks of IDAT
+        orig_width: Original width of the image
+        orig_height: Original height of the image
+        bit_depth: Bit depth of the image
+        color_type: Color type of the image
 
     Inspired from
     https://gist.github.com/DavidBuchanan314/93de9d07f7fab494bcdf17c2bd6cef02 (MIT License)
     """
     # keep only the IDAT chunks
-    idat_chunks = get_by_type(chunks, b"IDAT")
-    data_idat = b"".join(extract_idat(idat_chunks))
+    extracted = [get_data_of_chunk(one_chunk) for one_chunk in chunks]
+    data_idat = b"".join(extracted)
+
+    # remove the adler32 checksum at the end
+    data_idat = data_idat[:-4]
+
+    print(f"Extracted {len(data_idat)} bytes of idat!")
+
+    bitstream = []
+    for byte in data_idat:
+        for bit in range(8):
+            bitstream.append((byte >> bit) & 1)
+
+    for _ in range(7):
+        bitstream.append(0)
+
+    byte_offsets = []
+    for i in range(8):
+        shifted_bytestream = []
+        for j in range(i, len(bitstream) - 7, 8):
+            val = 0
+            for k in range(8):
+                val |= bitstream[j + k] << k
+            shifted_bytestream.append(val)
+        byte_offsets.append(bytes(shifted_bytestream))
+
+    # create new compression block
     prefix = (
         b"\x00"
         + (0x8000).to_bytes(2, "little")
         + (0x8000 ^ 0xFFFF).to_bytes(2, "little")
-        + b"X" * 0x8000
+        + b"\x00" * 0x8000
     )
     for i in range(len(data_idat)):
+        truncated = byte_offsets[i % 8][i // 8 :]
+
+        # only bother looking if it's (maybe) the start of a non-final adaptive huffman coded block
+        if truncated[0] & 7 != 0b100:
+            continue
         d = zlib.decompressobj(wbits=-15)
         try:
-            decompressed = d.decompress(prefix + data_idat[i:]) + d.flush(zlib.Z_FINISH)
+            decompressed = d.decompress(prefix + truncated) + d.flush(zlib.Z_FINISH)
             if d.eof and d.unused_data in [
                 b"",
                 b"\x00",
@@ -604,9 +657,26 @@ def acropalypse(chunks: List[Chunk], crop_width, crop_height, bit_depth, color_t
     else:
         print("Failed to find viable parse :(")
         return None, None, None
-    data = parse_idat(decompressed, crop_width, crop_height, bit_depth, color_type)
-    orig_width, orig_height = (crop_width, crop_height)
-    return data, orig_width, orig_height
+    if color_type == 6:
+        reconstructed_idat = bytearray(
+            (b"\x00" + b"\xff\x00\xff\xff" * orig_width) * orig_height
+        )
+    else:
+        reconstructed_idat = bytearray(
+            (b"\x00" + b"\xff\x00\xff" * orig_width) * orig_height
+        )
+
+    # paste in the data we decompressed
+    reconstructed_idat[-len(decompressed) :] = decompressed
+    data = parse_idat(
+        reconstructed_idat,
+        orig_width,
+        orig_height,
+        bit_depth,
+        color_type,
+        raise_error=False,
+    )
+    return data
 
 
 if __name__ == "__main__":

@@ -4,3 +4,6 @@ __pycache__/
 .vscode/
 pngtools.egg-info/
 venv/
+
+tests/acropalypsed.ppm
+acropalypse.ppm

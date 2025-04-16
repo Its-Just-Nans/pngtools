@@ -212,11 +212,18 @@ class CLI(cmd2.Cmd):
         if self.chunks:
             self.chunks.append(create_iend_chunk())
 
-    def do_acropalypse(self, _args):
+    acropalypse_parser = cmd2.Cmd2ArgumentParser()
+    acropalypse_parser.add_argument("origin_width", type=int, help="Original width")
+    acropalypse_parser.add_argument("origin_height", type=int, help="Original height")
+
+    @cmd2.with_argparser(acropalypse_parser)
+    def do_acropalypse(self, args):
         """Try acropalypse"""
+        origin_width = int(args.origin_width)
+        origin_height = int(args.origin_height)
         (
-            width,
-            height,
+            _width,
+            _height,
             bit_depth,
             color_type,
             _,
@@ -232,24 +239,23 @@ class CLI(cmd2.Cmd):
             print("No IEND chunk found")
             return
         print("More than one IEND chunk !")
-        print("Removing all correct chunks")
         self.chunks = [
             chunk
             for i, chunk in enumerate(self.chunks)
             if ERROR_CODE["WRONG_CRC"] in get_errors_of_chunk(chunk)
         ]
-        print("Chunks after removing all correct chunks:")
+        self.chunks = extract_sub_chunks(self.chunks[0])
+        print("Hidden chunks:")
         print_chunks(self.chunks)
-        last_index = len(self.chunks) - 1
-        print(f"Extracting data of last chunk ({last_index})")
-        self.sub_chunks(last_index)
-        print("Final chunks:")
-        print_chunks(self.chunks)
-        data = acropalypse(self.chunks, width, height, bit_depth, color_type)
+        data = acropalypse(
+            self.chunks, origin_width, origin_height, bit_depth, color_type
+        )
         if color_type == 6:
             # RGBA to RGB - we remove the 4th value of each pixel
             data = convert_rgba_to_rgb(data)
-        create_ppm("acropalypse.ppm", width, height, data)
+        output_file = "acropalypse.ppm"
+        create_ppm(output_file, origin_width, origin_height, data)
+        print(f"Output file: {output_file}")
 
     bitmap_parser = cmd2.Cmd2ArgumentParser()
     bitmap_parser.add_argument("filename", help="Output filename")
@@ -294,7 +300,7 @@ class CLI(cmd2.Cmd):
         if color_type == 6:
             # RGBA to RGB - we remove the 4th value of each pixel
             data = convert_rgba_to_rgb(data)
-        create_ppm(out_filename, width, height, data)
+        create_ppm(out_filename, width, height, data, binary=True)
 
     def do_exit(self, _args):
         """Exit the program"""
