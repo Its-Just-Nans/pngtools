@@ -1,0 +1,11 @@
+[package]
+name = "pngtools"
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+description = "pngtools in Rust with Python bindings"
+repository = "https://github.com/Its-Just-Nans/pngtools"
+homepage = "https://github.com/Its-Just-Nans/pngtools"
+
+[dependencies]
+pyo3 = { version = "0.27.2", features = ["auto-initialize"] }
