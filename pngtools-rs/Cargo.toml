@@ -4,6 +4,8 @@ version = "1.0.1"
 edition = "2024"
 license = "MIT"
 description = "pngtools in Rust with Python bindings"
+keywords = ["png", "pngtools", "image", "cli"]
+categories = ["command-line-utilities", "multimedia"]
 repository = "https://github.com/Its-Just-Nans/pngtools"
 homepage = "https://github.com/Its-Just-Nans/pngtools"
 
